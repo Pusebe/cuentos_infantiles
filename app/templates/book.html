@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ story_data.titulo or "Libro de " + book.child_name }}</h1>
+<p>Estado: {{ book.status }}</p>
+{% if book.pdf_path %}
+    <a href="/storage/pdfs/{{ book.pdf_path }}">Descargar PDF</a>
+{% endif %}
+{% endblock %}

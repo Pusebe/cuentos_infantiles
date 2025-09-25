@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Preview: {{ book.title or "Libro de " + book.child_name }}</h1>
+<p>Estado: {{ book.status }}</p>
+{% if cover_url %}
+    <img src="{{ cover_url }}" alt="Portada" style="max-width: 300px;">
+{% endif %}
+<p>Precio: {{ book.total_price_euros }}€</p>
+<a href="/checkout/{{ book.id }}">Comprar libro completo</a>
+{% endblock %}

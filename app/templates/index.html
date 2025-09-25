@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>🚀 Generador de Libros Infantiles V2</h1>
+<p><strong>OpenAI configurada:</strong> {{ openai_configured }}</p>
+<p><strong>Precio base:</strong> {{ base_price }}€</p>
+<p><strong>Libros creados:</strong> {{ stats.total_books }}</p>
+
+<hr>
+
+<h2>Crear Preview Gratuito</h2>
+<form id="bookForm" method="post" action="/api/books/create-preview" enctype="multipart/form-data">
+    <div>
+        <label>Nombre del niño:</label>
+        <input type="text" name="child_name" placeholder="Ej: María" required>
+    </div>
+    <br>
+    <div>
+        <label>Edad (1-12):</label>
+        <input type="number" name="child_age" min="1" max="12" placeholder="5" required>
+    </div>
+    <br>
+    <div>
+        <label>Descripción (opcional):</label>
+        <textarea name="child_description" placeholder="Le gustan los dinosaurios..."></textarea>
+    </div>
+    <br>
+    <div>
+        <label>Foto del niño:</label>
+        <input type="file" name="photo" accept="image/*" required>
+    </div>
+    <br>
+    <div>
+        <label>Páginas del libro:</label>
+        <input type="number" name="total_pages" min="4" max="20" value="6">
+    </div>
+    <br>
+    <button type="submit">🎨 Crear Preview Gratuito</button>
+</form>
+
+<div id="result" style="display: none;">
+    <h3>✅ Preview creado</h3>
+    <p>Tu libro se está procesando...</p>
+    <a id="previewLink" href="#" target="_blank">Ver Preview</a>
+</div>
+
+<script>
+document.getElementById('bookForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    
+    try {
+        const response = await fetch('/api/books/create-preview', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        console.log(data);
+        
+        if (response.ok) {
+            document.getElementById('result').style.display = 'block';
+            document.getElementById('previewLink').href = '/preview/' + data.id;
+            alert('Preview creado! ID: ' + data.id);
+        } else {
+            alert('Error: ' + data.detail);
+        }
+    } catch (err) {
+        alert('Error de conexión: ' + err.message);
+        console.error(err);
+    }
+});
+</script>
+{% endblock %}

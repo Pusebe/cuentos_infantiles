@@ -1,0 +1,35 @@
+# FastAPI y servidor
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+jinja2==3.1.2
+
+# Base de datos
+sqlalchemy==2.0.23
+alembic==1.12.1
+
+# IA y procesamiento de imágenes
+openai==1.109.1
+pillow==10.1.0
+
+# HTTP requests asíncronos
+aiohttp==3.9.0
+aiofiles==23.2.0
+
+# Utilidades
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# PDF generation
+reportlab==4.0.7
+
+# Email (futuro)
+emails==0.6
+
+# Pagos (futuro)
+stripe==7.7.0
+
+# Desarrollo
+pytest==7.4.3
+black==23.11.0
