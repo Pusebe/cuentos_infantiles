@@ -19,7 +19,7 @@ app = FastAPI(
     title=settings.app_name,
     debug=settings.debug,
     version="2.0.0",
-    description="Generador de libros infantiles personalizados con IA"
+    description="Generador de libros infantiles personalizados con IA (Gemini + Ideogram)"
 )
 
 # Static files y templates
@@ -32,31 +32,24 @@ templates = Jinja2Templates(directory="app/templates")
 from .api.books import router as books_router
 app.include_router(books_router)
 
-# TODO: Incluir otros routers cuando estén listos
-# from .api.payments import router as payments_router
-# from .api.preview import router as preview_router
-# app.include_router(payments_router)
-# app.include_router(preview_router)
-
 # === RUTAS DE PÁGINAS WEB ===
 
 @app.get("/", response_class=HTMLResponse)
 async def homepage(request: Request, db: Session = Depends(get_db)):
-    """
-    Homepage con formulario de creación
-    """
+    """Homepage con formulario de creación"""
     try:
-        # Estadísticas básicas para mostrar
         stats = get_book_stats(db)
         
         context = {
             "request": request,
             "stats": stats,
-            "base_price": settings.base_price / 100,  # Convertir céntimos a euros
+            "base_price": settings.base_price / 100,
             "price_per_extra_page": settings.price_per_extra_page / 100,
             "default_pages": settings.default_pages,
             "max_pages": 20,
-            "openai_configured": bool(settings.openai_api_key)
+            "gemini_configured": bool(settings.gemini_api_key),
+            "ideogram_configured": bool(settings.ideogram_api_key),
+            "apis_configured": bool(settings.gemini_api_key and settings.ideogram_api_key)
         }
         
         return templates.TemplateResponse("index.html", context)
@@ -71,9 +64,7 @@ async def homepage(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/preview/{book_id}", response_class=HTMLResponse)
 async def view_preview(request: Request, book_id: str, db: Session = Depends(get_db)):
-    """
-    Ver preview gratuito del libro (portada + info básica)
-    """
+    """Ver preview gratuito del libro (portada + info básica)"""
     try:
         book = db.query(Book).filter(Book.id == book_id).first()
         if not book:
@@ -83,7 +74,6 @@ async def view_preview(request: Request, book_id: str, db: Session = Depends(get
                 "error_code": 404
             })
         
-        # Verificar estado del libro
         if book.status == 'preview':
             return templates.TemplateResponse("error.html", {
                 "request": request,
@@ -108,7 +98,6 @@ async def view_preview(request: Request, book_id: str, db: Session = Depends(get
                 "error_code": 403
             })
         
-        # Parsear datos de la historia
         story_data = {}
         if book.book_data_json:
             try:
@@ -138,9 +127,7 @@ async def view_preview(request: Request, book_id: str, db: Session = Depends(get
 
 @app.get("/book/{book_id}", response_class=HTMLResponse)
 async def view_complete_book(request: Request, book_id: str, db: Session = Depends(get_db)):
-    """
-    Ver libro completo (solo si está pagado y completado)
-    """
+    """Ver libro completo (solo si está pagado y completado)"""
     try:
         book = db.query(Book).filter(Book.id == book_id).first()
         if not book:
@@ -150,7 +137,6 @@ async def view_complete_book(request: Request, book_id: str, db: Session = Depen
                 "error_code": 404
             })
         
-        # Verificar que el libro esté completado
         if book.status == 'generating':
             return templates.TemplateResponse("error.html", {
                 "request": request,
@@ -175,7 +161,6 @@ async def view_complete_book(request: Request, book_id: str, db: Session = Depen
                 "error_code": 403
             })
         
-        # Parsear datos de la historia
         story_data = {}
         if book.book_data_json:
             try:
@@ -202,9 +187,7 @@ async def view_complete_book(request: Request, book_id: str, db: Session = Depen
 
 @app.get("/checkout/{book_id}", response_class=HTMLResponse)
 async def checkout_page(request: Request, book_id: str, db: Session = Depends(get_db)):
-    """
-    Página de pago (configurar páginas + Stripe)
-    """
+    """Página de pago (configurar páginas + Stripe)"""
     try:
         book = db.query(Book).filter(Book.id == book_id).first()
         if not book:
@@ -223,7 +206,6 @@ async def checkout_page(request: Request, book_id: str, db: Session = Depends(ge
             })
         
         if book.is_paid:
-            # Redirigir al libro completo si ya está pagado
             if book.status == 'completed':
                 return templates.TemplateResponse("book.html", {
                     "request": request,
@@ -238,7 +220,6 @@ async def checkout_page(request: Request, book_id: str, db: Session = Depends(ge
                     "book": book
                 })
         
-        # Parsear datos de la historia para mostrar preview
         story_data = {}
         if book.book_data_json:
             try:
@@ -254,7 +235,7 @@ async def checkout_page(request: Request, book_id: str, db: Session = Depends(ge
             "price_per_extra_page": settings.price_per_extra_page / 100,
             "default_pages": settings.default_pages,
             "cover_url": f"/storage/previews/{book.cover_preview_path}" if book.cover_preview_path else None,
-            "stripe_publishable_key": "pk_test_placeholder"  # TODO: Configurar Stripe
+            "stripe_publishable_key": settings.stripe_publishable_key or "pk_test_placeholder"
         }
         
         return templates.TemplateResponse("checkout.html", context)
@@ -271,22 +252,19 @@ async def checkout_page(request: Request, book_id: str, db: Session = Depends(ge
 
 @app.get("/health")
 async def health_check():
-    """
-    Health check endpoint para monitoreo
-    """
+    """Health check endpoint para monitoreo"""
     return {
         "status": "ok",
         "app": settings.app_name,
         "version": "2.0.0",
-        "openai_configured": bool(settings.openai_api_key),
+        "gemini_configured": bool(settings.gemini_api_key),
+        "ideogram_configured": bool(settings.ideogram_api_key),
         "database": "connected" if settings.database_url else "not configured"
     }
 
 @app.get("/stats")
 async def get_stats(db: Session = Depends(get_db)):
-    """
-    Estadísticas básicas de la aplicación
-    """
+    """Estadísticas básicas de la aplicación"""
     try:
         stats = get_book_stats(db)
         return stats

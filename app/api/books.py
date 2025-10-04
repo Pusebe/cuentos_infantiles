@@ -1,15 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request, BackgroundTasks
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from PIL import Image
 import json
 import secrets
 from pathlib import Path
-import asyncio
 
-from ..database import get_db, check_rate_limit, record_action
-from ..models import Book, BookResponse, BookCreate
-from ..services import get_openai_service
+from ..database import get_db, check_rate_limit, record_action, SessionLocal
+from ..models import Book, BookResponse
+from ..services import get_book_service
 from ..config import settings
 
 router = APIRouter(prefix="/api/books", tags=["books"])
@@ -26,21 +25,18 @@ def allowed_file(filename: str) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in settings.allowed_extensions
 
 def save_upload_file(upload_file: UploadFile) -> str:
-    """Guardar archivo subido y retornar path"""
+    """Guardar archivo subido"""
     if not allowed_file(upload_file.filename):
         raise HTTPException(status_code=400, detail="Tipo de archivo no permitido")
     
-    # Generar nombre único
     file_ext = upload_file.filename.rsplit('.', 1)[1].lower()
     unique_filename = f"{secrets.token_urlsafe(16)}.{file_ext}"
     file_path = settings.uploads_dir / unique_filename
     
-    # Validar que es una imagen válida
     try:
         image = Image.open(upload_file.file)
-        image.verify()  # Verificar que es una imagen válida
+        image.verify()
         
-        # Resetear file pointer y guardar
         upload_file.file.seek(0)
         with open(file_path, "wb") as f:
             f.write(upload_file.file.read())
@@ -63,28 +59,28 @@ async def create_book_preview(
     db: Session = Depends(get_db)
 ):
     """
-    Crear preview gratuito del libro (solo portada con marca de agua)
+    Crear preview usando Gemini + Ideogram
     """
     # Rate limiting
     client_ip = get_client_ip(request)
     if not check_rate_limit(db, client_ip, "free_preview", settings.free_previews_per_ip_per_day):
         raise HTTPException(
             status_code=429, 
-            detail=f"Máximo {settings.free_previews_per_ip_per_day} previews gratuitos por día"
+            detail=f"Máximo {settings.free_previews_per_ip_per_day} previews por día"
         )
     
     # Validaciones
     if not (1 <= child_age <= 12):
-        raise HTTPException(status_code=400, detail="La edad debe estar entre 1 y 12 años")
+        raise HTTPException(status_code=400, detail="Edad entre 1 y 12 años")
     
     if not (4 <= total_pages <= 20):
-        raise HTTPException(status_code=400, detail="El libro debe tener entre 4 y 20 páginas")
+        raise HTTPException(status_code=400, detail="Entre 4 y 20 páginas")
     
     try:
         # Guardar foto
         photo_path = save_upload_file(photo)
         
-        # Crear registro en BD
+        # Crear libro en BD
         book = Book(
             child_name=child_name.strip(),
             child_age=child_age,
@@ -92,75 +88,70 @@ async def create_book_preview(
             total_pages=total_pages,
             original_photo_path=photo_path,
             status='preview',
-            ip_hash=client_ip  # Para analytics básico
+            ip_hash=client_ip
         )
         
         db.add(book)
         db.commit()
         db.refresh(book)
         
-        # Registrar acción para rate limiting
+        # Registrar acción
         record_action(db, client_ip, "free_preview")
         
-        # Generar historia y portada preview en background
-        background_tasks.add_task(generate_preview_content, book.id)
+        # Generar en background
+        background_tasks.add_task(generate_preview_gemini_ideogram, book.id)
         
-        print(f"✅ Preview creado: {book.id} para {child_name}")
-        
+        print(f"✅ Preview creado: {book.id}")
         return BookResponse.from_orm(book)
         
     except Exception as e:
         print(f"❌ Error creando preview: {e}")
-        raise HTTPException(status_code=500, detail=f"Error procesando solicitud: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-async def generate_preview_content(book_id: str):
+async def generate_preview_gemini_ideogram(book_id: str):
     """
-    Tarea en background para generar contenido del preview
+    Generar preview: Gemini (historia) + Ideogram (portada)
     """
     try:
         db_session = SessionLocal()
         book = db_session.query(Book).filter(Book.id == book_id).first()
         
         if not book:
-            print(f"❌ Libro {book_id} no encontrado para preview")
+            print(f"❌ Libro {book_id} no encontrado")
             return
         
-        # Obtener servicio de OpenAI
-        openai_service = get_openai_service()
+        service = get_book_service()
         
-        # 1. Generar historia
-        print(f"📖 Generando historia para preview {book_id}...")
-        story_data = await openai_service.generate_story(
-            book.child_name, 
-            book.child_age, 
-            book.child_description or "",
-            book.total_pages
+        # 1. Gemini: Analizar foto + generar historia
+        print(f"🤖 Gemini generando historia para {book_id}...")
+        story_data = await service.gemini.generate_story_from_photo(
+            photo_path=book.original_photo_path,
+            child_name=book.child_name,
+            age=book.child_age,
+            description=book.child_description or "",
+            num_pages=book.total_pages
         )
         
-        # 2. Generar portada preview
-        print(f"🎨 Generando portada preview {book_id}...")
-        cover_filename = await openai_service.generate_cover_preview(
-            book.child_name,
-            book.child_age, 
-            book.original_photo_path,
-            story_data
+        # 2. Ideogram: Generar portada preview
+        print(f"🎨 Ideogram generando portada para {book_id}...")
+        cover_filename = await service.ideogram.generate_cover(
+            story_data=story_data,
+            reference_image_path=book.original_photo_path
         )
         
-        # 3. Actualizar registro
+        # 3. Actualizar BD
         book.title = story_data['titulo']
-        book.story_theme = story_data['tema']
+        book.story_theme = story_data.get('tema', '')
         book.book_data_json = json.dumps(story_data, ensure_ascii=False)
         book.cover_preview_path = cover_filename
         book.status = 'preview_ready'
         
         db_session.commit()
-        
         print(f"✅ Preview {book_id} completado")
         
     except Exception as e:
         print(f"❌ Error generando preview {book_id}: {e}")
         
-        # Actualizar estado de error
         if 'db_session' in locals() and 'book' in locals():
             book.status = 'preview_error'
             book.generation_error = str(e)
@@ -172,9 +163,7 @@ async def generate_preview_content(book_id: str):
 
 @router.get("/{book_id}", response_model=BookResponse)
 async def get_book(book_id: str, db: Session = Depends(get_db)):
-    """
-    Obtener información de un libro
-    """
+    """Obtener información de un libro"""
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
         raise HTTPException(status_code=404, detail="Libro no encontrado")
@@ -189,49 +178,33 @@ async def generate_complete_book(
 ):
     """
     Generar libro completo (después del pago)
-    Solo disponible para libros pagados
     """
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
         raise HTTPException(status_code=404, detail="Libro no encontrado")
     
     if book.status != 'paid':
-        raise HTTPException(status_code=400, detail="El libro debe estar pagado para generar la versión completa")
+        raise HTTPException(status_code=400, detail="Debe estar pagado")
     
     if book.status == 'generating':
-        return {"message": "El libro ya se está generando", "status": "generating"}
+        return {"message": "Ya se está generando", "status": "generating"}
     
     if book.status == 'completed':
-        return {"message": "El libro ya está completado", "status": "completed"}
+        return {"message": "Ya está completado", "status": "completed"}
     
-    # Iniciar generación en background
-    background_tasks.add_task(generate_complete_book_task, book_id)
+    # Generar en background
+    service = get_book_service()
+    background_tasks.add_task(service.generate_complete_book, book_id)
     
     return {
-        "message": "Generación iniciada. Recibirás un email cuando esté listo.",
+        "message": "Generación iniciada",
         "status": "generating",
-        "estimated_time_minutes": 3
+        "estimated_time_minutes": 5
     }
-
-async def generate_complete_book_task(book_id: str):
-    """
-    Tarea para generar libro completo
-    """
-    try:
-        openai_service = get_openai_service()
-        await openai_service.generate_complete_book(book_id)
-        
-        # TODO: Enviar email de notificación
-        print(f"✅ Libro completo {book_id} generado y email enviado")
-        
-    except Exception as e:
-        print(f"❌ Error en generación completa {book_id}: {e}")
 
 @router.get("/{book_id}/status")
 async def get_book_status(book_id: str, db: Session = Depends(get_db)):
-    """
-    Obtener estado actual del libro (para polling desde frontend)
-    """
+    """Estado del libro (para polling)"""
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
         raise HTTPException(status_code=404, detail="Libro no encontrado")
@@ -243,7 +216,6 @@ async def get_book_status(book_id: str, db: Session = Depends(get_db)):
         "title": book.title
     }
     
-    # Información específica según el estado
     if book.status == 'preview_ready':
         response["cover_preview_url"] = f"/storage/previews/{book.cover_preview_path}" if book.cover_preview_path else None
         response["story_preview"] = json.loads(book.book_data_json).get("resumen", "") if book.book_data_json else ""
@@ -260,9 +232,7 @@ async def get_book_status(book_id: str, db: Session = Depends(get_db)):
 
 @router.delete("/{book_id}")
 async def delete_book(book_id: str, db: Session = Depends(get_db)):
-    """
-    Eliminar libro (solo previews no pagados)
-    """
+    """Eliminar libro (solo previews no pagados)"""
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
         raise HTTPException(status_code=404, detail="Libro no encontrado")
@@ -270,7 +240,7 @@ async def delete_book(book_id: str, db: Session = Depends(get_db)):
     if book.is_paid:
         raise HTTPException(status_code=400, detail="No se pueden eliminar libros pagados")
     
-    # Eliminar archivos asociados
+    # Eliminar archivos
     if book.original_photo_path:
         try:
             Path(book.original_photo_path).unlink(missing_ok=True)
@@ -288,6 +258,3 @@ async def delete_book(book_id: str, db: Session = Depends(get_db)):
     db.commit()
     
     return {"message": "Libro eliminado exitosamente"}
-
-# Importar SessionLocal aquí para evitar circular imports
-from ..database import SessionLocal

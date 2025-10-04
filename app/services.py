@@ -1,11 +1,10 @@
-import openai
+import google.generativeai as genai
 import json
 import asyncio
-import base64
 import aiohttp
 import aiofiles
+import base64
 from pathlib import Path
-from PIL import Image
 from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
@@ -14,346 +13,229 @@ from .models import Book
 from .database import SessionLocal
 import secrets
 import time
+from PIL import Image
 
-class OpenAIService:
-    def __init__(self):
-        if not settings.openai_api_key:
-            raise ValueError("OPENAI_API_KEY no configurada")
-        
-        try:
-            # Inicialización simple sin argumentos problemáticos
-            import openai
-            self.client = openai.OpenAI(api_key=settings.openai_api_key)
-            print("🤖 OpenAI Client configurado correctamente")
-        except Exception as e:
-            print(f"❌ Error configurando OpenAI Client: {e}")
-            # Fallback para versiones más antiguas
-            import openai
-            openai.api_key = settings.openai_api_key
-            self.client = openai  # Usar el módulo directamente
-            print("🔄 Usando configuración OpenAI legacy")
-        
-        # Rate limiting para evitar 429 errors
-        self.last_image_request = 0
-        self.min_delay_between_images = 12  # 5 img/min = 12s between requests
+class GeminiService:
+    """Servicio para Gemini - Generación de historias con vision"""
     
-    async def generate_story(self, child_name: str, age: int, description: str, num_pages: int) -> Dict:
-        """
-        Generar historia apropiada para la edad con GPT-5
-        """
-        age_guidance = {
-            range(1, 4): "Muy simple, frases cortas, conceptos básicos como colores y formas",
-            range(4, 7): "Simple pero con pequeñas aventuras, aprendizaje de valores",
-            range(7, 10): "Aventuras más elaboradas, resolución de problemas sencillos",
-            range(10, 13): "Historias complejas, desarrollo de personajes, moralejas profundas"
-        }
+    def __init__(self):
+        if not settings.gemini_api_key:
+            raise ValueError("GEMINI_API_KEY no configurada")
         
-        guidance = "Aventura apropiada para la edad"
-        for age_range, text in age_guidance.items():
-            if age in age_range:
-                guidance = text
-                break
+        genai.configure(api_key=settings.gemini_api_key)
+        self.model = genai.GenerativeModel(settings.gemini_model)
+        print("🤖 Gemini configurado correctamente")
+    
+    async def generate_story_from_photo(self, photo_path: str, child_name: str, age: int, description: str, num_pages: int) -> Dict:
+        """
+        Analiza foto y genera historia completa usando Gemini 2.5 Flash
+        """
+        
+        # Cargar imagen
+        img = Image.open(photo_path)
         
         prompt = f"""
-        Crea un cuento infantil personalizado para {child_name} de {age} años.
-        
-        INFORMACIÓN DEL NIÑO:
-        - Nombre: {child_name}
+        Analiza esta foto y crea un cuento infantil personalizado.
+
+        INFORMACIÓN:
+        - Nombre del niño: {child_name}
         - Edad: {age} años
-        - Descripción: {description or 'Le gustan las aventuras'}
-        
-        REQUISITOS:
-        - {guidance}
-        - Historia positiva, educativa y apropiada para {age} años
-        - {num_pages} páginas de contenido
-        - Cada página debe tener 1-2 frases máximo (apropiado para ilustrar)
-        - Incluye a {child_name} como protagonista
-        - Final feliz y educativo
-        
+        - Descripción adicional: {description or 'Le gustan las aventuras'}
+        - Páginas del libro: {num_pages}
+
+        ANÁLISIS DE LA FOTO:
+        1. Describe detalladamente la apariencia del niño (pelo, ojos, ropa, expresión)
+        2. Identifica elementos del fondo que puedan inspirar la historia
+        3. Nota el contexto y ambiente de la foto
+
+        REQUISITOS DE LA HISTORIA:
+        - Adaptada perfectamente para un niño de {age} años
+        - {child_name} como protagonista heroico
+        - {num_pages} páginas exactas
+        - Cada página: 1-2 frases cortas (ideales para ilustrar)
+        - Historia emocionante que los padres quieran comprar
+        - Final feliz con lección positiva
+
         RESPONDE EN FORMATO JSON EXACTO:
         {{
+            "child_description": "Descripción física detallada del niño de la foto",
+            "scene_context": "Descripción del fondo y ambiente de la foto",
             "titulo": "Título atractivo del libro",
             "tema": "Tema principal (aventura, amistad, etc)",
-            "resumen": "Breve resumen de 1 frase",
+            "resumen": "Resumen de 1 frase",
+            "leccion": "Qué aprenderá el niño",
             "paginas": [
-                {{"numero": 1, "texto": "Primera frase de la historia."}},
-                {{"numero": 2, "texto": "Segunda parte de la aventura."}},
-                ...hasta página {num_pages}
+                {{"numero": 1, "texto": "Texto de la página 1", "escena": "Descripción de qué ilustrar"}},
+                {{"numero": 2, "texto": "Texto de la página 2", "escena": "Descripción de qué ilustrar"}},
+                ... hasta {num_pages} páginas
             ]
         }}
         """
         
         try:
-            response = await self._call_gpt5(prompt)
-            story_data = self._parse_story_response(response, child_name, num_pages)
+            response = await asyncio.to_thread(
+                self.model.generate_content,
+                [prompt, img]
+            )
             
-            print(f"📖 Historia generada: '{story_data['titulo']}' - {len(story_data['paginas'])} páginas")
+            # Parsear JSON
+            story_data = self._parse_gemini_response(response.text, child_name, num_pages)
+            
+            print(f"📖 Historia generada con Gemini: '{story_data['titulo']}'")
             return story_data
             
         except Exception as e:
-            print(f"❌ Error generando historia: {e}")
+            print(f"❌ Error generando historia con Gemini: {e}")
             return self._fallback_story(child_name, age, num_pages)
     
-    async def generate_cover_preview(self, child_name: str, age: int, photo_path: str, story_data: Dict) -> Optional[str]:
-        """
-        Generar portada de preview gratuito (calidad baja con marca de agua)
-        """
+    def _parse_gemini_response(self, response_text: str, child_name: str, num_pages: int) -> Dict:
+        """Parsear respuesta JSON de Gemini"""
         try:
-            # Esperar rate limit
-            await self._respect_rate_limit()
+            # Limpiar respuesta
+            clean_text = response_text.strip()
+            if clean_text.startswith('```json'):
+                clean_text = clean_text[7:]
+            if clean_text.startswith('```'):
+                clean_text = clean_text[3:]
+            if clean_text.endswith('```'):
+                clean_text = clean_text[:-3]
             
-            # Prompt específico para portada
-            prompt = f"""
-            Portada de libro infantil con el niño protagonista. Fondo colorido y relacionado con el tema: {story_data['tema']}.
-            Texto principal: "{story_data['titulo']}", centrado en la parte superior, letras grandes, legibles, tipografía infantil sans-serif, estilo amigable y brillante.
-            Subtítulo: "Un cuento para {child_name}", justo debajo del título, mismo estilo, color que contraste con el fondo.
-            El niño protagonista debe ser reconocible y en estilo ilustración infantil profesional, colores brillantes y alegres.
-            """
-            
-            # Generar imagen con referencia a la foto
-            image_url = await self._generate_gpt_image(prompt, photo_path, quality="standard")
-            
-            if image_url:
-                # Descargar y guardar imagen
-                preview_filename = f"cover_preview_{child_name}_{secrets.token_urlsafe(8)}.png"
-                preview_path = settings.previews_dir / preview_filename
-                
-                if await self._download_and_save_image(image_url, preview_path):
-                    print(f"✅ Portada preview generada: {preview_filename}")
-                    return str(preview_filename)
-            
-            return None
-            
-        except Exception as e:
-            print(f"❌ Error generando portada preview: {e}")
-            return None
-    
-    async def generate_complete_book(self, book_id: str):
-        """
-        Generar libro completo (portada + todas las páginas)
-        Proceso asíncrono que actualiza el estado en BD
-        """
-        try:
-            # Obtener datos del libro
-            db = SessionLocal()
-            book = db.query(Book).filter(Book.id == book_id).first()
-            if not book:
-                print(f"❌ Libro {book_id} no encontrado")
-                return
-            
-            # Actualizar estado
-            book.status = 'generating'
-            db.commit()
-            
-            # Parsear datos de la historia
-            story_data = json.loads(book.book_data_json)
-            
-            print(f"🎨 Generando libro completo para {book.child_name}...")
-            
-            # 1. Generar portada final (sin marca de agua)
-            print("📖 Generando portada final...")
-            cover_path = await self._generate_final_cover(book, story_data)
-            
-            # 2. Generar todas las páginas
-            page_paths = []
-            for i, page_data in enumerate(story_data['paginas'], 1):
-                print(f"🖼️ Generando página {i}/{len(story_data['paginas'])}...")
-                
-                page_path = await self._generate_page_image(book, page_data, i)
-                page_paths.append(page_path)
-                
-                # Esperar entre requests para respetar rate limit
-                if i < len(story_data['paginas']):
-                    await asyncio.sleep(self.min_delay_between_images)
-            
-            # 3. Generar PDF final
-            print("📄 Generando PDF...")
-            pdf_path = await self._create_final_pdf(book, story_data, cover_path, page_paths)
-            
-            # 4. Actualizar estado final
-            book.status = 'completed'
-            book.pdf_path = str(pdf_path) if pdf_path else None
-            book.completed_at = func.now()
-            db.commit()
-            
-            print(f"🎉 Libro {book_id} completado exitosamente")
-            
-            # TODO: Enviar email de notificación
-            
-        except Exception as e:
-            print(f"❌ Error generando libro completo {book_id}: {e}")
-            
-            # Actualizar estado de error
-            db = SessionLocal()
-            book = db.query(Book).filter(Book.id == book_id).first()
-            if book:
-                book.status = 'error'
-                book.generation_error = str(e)
-                db.commit()
-        
-        finally:
-            db.close()
-    
-    async def _call_gpt5(self, prompt: str) -> str:
-        """Llamada a GPT-5 nano con la nueva API (sin max_tokens deprecado)"""
-        try:
-            response = self.client.chat.completions.create(
-                model=settings.openai_model,  # gpt-5-nano
-                messages=[
-                    {"role": "system", "content": "Eres un experto escritor de cuentos infantiles. Respondes siempre en JSON válido."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_completion_tokens=1500,  # CORRECTO: max_completion_tokens en lugar de max_tokens
-            )
-            
-            return response.choices[0].message.content
-            
-        except Exception as e:
-            print(f"❌ Error llamando {settings.openai_model}: {e}")
-            raise e
-    
-    async def _generate_gpt_image(self, prompt: str, reference_photo_path: str = None, quality: str = "standard") -> Optional[str]:
-        """Generar imagen con DALL-E 3 (más estable que gpt-image-1)"""
-        try:
-            # Respectar rate limiting
-            await self._respect_rate_limit()
-            
-            # Usar DALL-E 3 que es más estable
-            response = self.client.images.generate(
-                model="dall-e-3",  # DALL-E 3 en lugar de gpt-image-1
-                prompt=prompt,
-                size=settings.openai_image_size,
-                quality=quality,  # standard o hd
-                n=1
-            )
-            
-            return response.data[0].url
-            
-        except Exception as e:
-            print(f"❌ Error generando imagen con DALL-E 3: {e}")
-            if "billing" in str(e).lower() or "quota" in str(e).lower():
-                print("💳 Problema de cuota/billing de OpenAI")
-            return None
-    
-    async def _respect_rate_limit(self):
-        """Esperar el tiempo necesario para respetar rate limit"""
-        now = time.time()
-        time_since_last = now - self.last_image_request
-        
-        if time_since_last < self.min_delay_between_images:
-            wait_time = self.min_delay_between_images - time_since_last
-            print(f"⏳ Esperando {wait_time:.1f}s para respetar rate limit...")
-            await asyncio.sleep(wait_time)
-        
-        self.last_image_request = time.time()
-    
-    def _parse_story_response(self, response: str, child_name: str, num_pages: int) -> Dict:
-        """Parsear respuesta de GPT y validar"""
-        try:
-            # Limpiar markdown si existe
-            clean_response = response.strip()
-            if clean_response.startswith('```json'):
-                clean_response = clean_response[7:]
-            if clean_response.startswith('```'):
-                clean_response = clean_response[3:]
-            if clean_response.endswith('```'):
-                clean_response = clean_response[:-3]
-            
-            story_data = json.loads(clean_response.strip())
+            data = json.loads(clean_text.strip())
             
             # Validar estructura
-            required_keys = ['titulo', 'tema', 'paginas']
+            required_keys = ['child_description', 'titulo', 'paginas']
             for key in required_keys:
-                if key not in story_data:
+                if key not in data:
                     raise ValueError(f"Falta clave: {key}")
             
-            if len(story_data['paginas']) != num_pages:
-                raise ValueError(f"Número incorrecto de páginas: {len(story_data['paginas'])}")
+            # Ajustar páginas si es necesario
+            if len(data['paginas']) != num_pages:
+                print(f"⚠️ Ajustando páginas: {len(data['paginas'])} → {num_pages}")
+                if len(data['paginas']) > num_pages:
+                    data['paginas'] = data['paginas'][:num_pages]
+                else:
+                    while len(data['paginas']) < num_pages:
+                        data['paginas'].append({
+                            "numero": len(data['paginas']) + 1,
+                            "texto": f"{child_name} continuó su aventura.",
+                            "escena": "El niño en una escena de aventura"
+                        })
             
-            return story_data
+            return data
             
         except Exception as e:
-            print(f"❌ Error parseando historia: {e}")
-    async def _generate_final_cover(self, book: Book, story_data: Dict) -> Optional[str]:
+            print(f"❌ Error parseando Gemini: {e}")
+            raise e
+    
+    def _fallback_story(self, child_name: str, age: int, num_pages: int) -> Dict:
+        """Historia de respaldo"""
+        pages = []
+        for i in range(1, num_pages + 1):
+            pages.append({
+                "numero": i,
+                "texto": f"{child_name} vivió una gran aventura.",
+                "escena": f"{child_name} en una escena emocionante"
+            })
+        
+        return {
+            "child_description": f"Niño de {age} años llamado {child_name}",
+            "scene_context": "Ambiente de aventura",
+            "titulo": f"Las Aventuras de {child_name}",
+            "tema": "Aventura",
+            "resumen": f"Una historia sobre {child_name}",
+            "leccion": "Valentía y amistad",
+            "paginas": pages
+        }
+
+
+class IdeogramService:
+    """Servicio para Ideogram - Generación de imágenes con character reference"""
+    
+    def __init__(self):
+        if not settings.ideogram_api_key:
+            raise ValueError("IDEOGRAM_API_KEY no configurada")
+        
+        self.api_key = settings.ideogram_api_key
+        self.base_url = "https://api.ideogram.ai/v1/ideogram-v3/generate"
+        self.last_request = 0
+        self.min_delay = 2  # Rate limiting
+        print("🎨 Ideogram configurado correctamente")
+    
+    async def generate_cover(self, story_data: Dict, reference_image_path: str) -> Optional[str]:
         """
-        Generar portada final (sin marca de agua)
+        Genera portada usando la foto del niño como character reference
         """
         try:
             await self._respect_rate_limit()
             
+            child_desc = story_data.get('child_description', 'un niño')
+            
             prompt = f"""
-            Create a professional children's book cover illustration featuring a child as the main character.
+            Portada profesional de libro infantil.
             
-            BOOK DETAILS:
-            - Title: "{story_data['titulo']}"
-            - Theme: {story_data['tema']}
-            - Child's name: {book.child_name}
-            - Age: {book.child_age} years old
+            TÍTULO: "{story_data['titulo']}" - texto grande, claro y perfectamente legible
+            SUBTÍTULO: "Un cuento para [nombre del niño]"
             
-            STYLE REQUIREMENTS:
-            - HIGH QUALITY children's book illustration style
-            - Bright, colorful, professional book cover quality
-            - Show the title "{story_data['titulo']}" prominently at the top
-            - Include "Un cuento para {book.child_name}" as subtitle
-            - Make it look like a premium children's book cover
-            - Professional book cover layout with excellent typography
-            - The background should beautifully represent the story theme: {story_data['tema']}
+            PERSONAJE PRINCIPAL: {child_desc}
+            TEMA: {story_data.get('tema', 'aventura')}
+            
+            ESTILO: Ilustración Disney/Pixar de alta calidad, colores vibrantes,
+            diseño comercial que destaque en estanterías. El texto del título debe
+            ser perfecto sin errores. Portada que vale 10€.
             """
             
-            image_url = await self._generate_gpt_image(prompt, book.original_photo_path, quality="hd")  # HD para portada final
+            image_url = await self._generate_with_character_reference(
+                prompt,
+                reference_image_path
+            )
             
             if image_url:
-                cover_filename = f"cover_final_{book.child_name}_{book.id[:8]}.png"
-                cover_path = settings.books_dir / cover_filename
+                filename = f"cover_{secrets.token_urlsafe(8)}.png"
+                file_path = settings.previews_dir / filename
                 
-                if await self._download_and_save_image(image_url, cover_path):
-                    print(f"✅ Portada final generada: {cover_filename}")
-                    return str(cover_filename)
+                if await self._download_image(image_url, file_path):
+                    print(f"✅ Portada generada: {filename}")
+                    return str(filename)
             
             return None
             
         except Exception as e:
-            print(f"❌ Error generando portada final: {e}")
+            print(f"❌ Error generando portada: {e}")
             return None
     
-    async def _generate_page_image(self, book: Book, page_data: Dict, page_number: int) -> Optional[str]:
+    async def generate_page(self, page_data: Dict, story_data: Dict, reference_image_path: str, page_number: int) -> Optional[str]:
         """
-        Generar imagen de página específica
+        Genera página usando imagen anterior como referencia
         """
         try:
             await self._respect_rate_limit()
             
+            child_desc = story_data.get('child_description', 'un niño')
+            
             prompt = f"""
-            Create a children's book page illustration featuring a child as the main character.
+            Ilustración página {page_number} de libro infantil.
             
-            PAGE DETAILS:
-            - Page {page_number} of {book.total_pages}
-            - Text for this page: "{page_data['texto']}"
-            - Child's name: {book.child_name}
-            - Age: {book.child_age} years old
-            - Book theme: {json.loads(book.book_data_json).get('tema', 'adventure')}
+            ESCENA: {page_data.get('escena', page_data['texto'])}
+            PERSONAJE: {child_desc} (debe ser consistente con la referencia)
+            TEMA: {story_data.get('tema', 'aventura')}
             
-            ILLUSTRATION REQUIREMENTS:
-            - Children's book page illustration style
-            - Show the scene described in: "{page_data['texto']}"
-            - The child character should be consistent and recognizable
-            - Bright, colorful, age-appropriate for {book.child_age} years old
-            - Professional children's book illustration quality
-            - The scene should visually represent the text content
-            - Include visual storytelling elements that complement the text
-            
-            IMPORTANT: Focus on the scene and action, the text will be added separately.
+            ESTILO: Ilustración Disney/Pixar, colores vibrantes, apropiada para niños.
+            El personaje debe ser reconocible y consistente.
+            SIN TEXTO en la imagen.
             """
             
-            image_url = await self._generate_gpt_image(prompt, book.original_photo_path, quality="standard")  # Standard para páginas
+            image_url = await self._generate_with_character_reference(
+                prompt,
+                reference_image_path
+            )
             
             if image_url:
-                page_filename = f"page_{page_number:02d}_{book.id[:8]}.png"
-                page_path = settings.books_dir / page_filename
+                filename = f"page_{page_number:02d}_{secrets.token_urlsafe(8)}.png"
+                file_path = settings.books_dir / filename
                 
-                if await self._download_and_save_image(image_url, page_path):
-                    print(f"✅ Página {page_number} generada: {page_filename}")
-                    return str(page_filename)
+                if await self._download_image(image_url, file_path):
+                    print(f"✅ Página {page_number} generada: {filename}")
+                    return str(filename)
             
             return None
             
@@ -361,137 +243,232 @@ class OpenAIService:
             print(f"❌ Error generando página {page_number}: {e}")
             return None
     
-    async def _create_final_pdf(self, book: Book, story_data: Dict, cover_path: Optional[str], page_paths: List[Optional[str]]) -> Optional[str]:
+    async def _generate_with_character_reference(self, prompt: str, reference_image_path: str) -> Optional[str]:
         """
-        Crear PDF final del libro con todas las imágenes y texto
+        Genera imagen usando Ideogram con character reference
         """
         try:
-            from reportlab.pdfgen import canvas
+            # Leer imagen de referencia
+            with open(reference_image_path, 'rb') as f:
+                image_data = f.read()
+            
+            # Preparar request multipart
+            form_data = aiohttp.FormData()
+            form_data.add_field('prompt', prompt)
+            form_data.add_field('model', settings.ideogram_model)
+            form_data.add_field('magic_prompt', str(settings.ideogram_magic_prompt).lower())
+            form_data.add_field('aspect_ratio', settings.ideogram_aspect_ratio)
+            form_data.add_field('character_reference_images', image_data, 
+                              filename='reference.jpg',
+                              content_type='image/jpeg')
+            
+            headers = {
+                'Api-Key': self.api_key
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(self.base_url, data=form_data, headers=headers) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        
+                        # Extraer URL de la imagen generada
+                        if 'data' in result and len(result['data']) > 0:
+                            return result['data'][0]['url']
+                    else:
+                        error_text = await response.text()
+                        print(f"❌ Ideogram error {response.status}: {error_text}")
+                        return None
+            
+        except Exception as e:
+            print(f"❌ Error en Ideogram API: {e}")
+            return None
+    
+    async def _download_image(self, url: str, save_path: Path) -> bool:
+        """Descargar imagen de URL"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        content = await response.read()
+                        async with aiofiles.open(save_path, 'wb') as f:
+                            await f.write(content)
+                        return True
+            return False
+        except Exception as e:
+            print(f"❌ Error descargando imagen: {e}")
+            return False
+    
+    async def _respect_rate_limit(self):
+        """Rate limiting"""
+        now = time.time()
+        time_since_last = now - self.last_request
+        
+        if time_since_last < self.min_delay:
+            wait_time = self.min_delay - time_since_last
+            await asyncio.sleep(wait_time)
+        
+        self.last_request = time.time()
+
+
+class BookGenerationService:
+    """Servicio orquestador para generar libros completos"""
+    
+    def __init__(self):
+        self.gemini = GeminiService()
+        self.ideogram = IdeogramService()
+    
+    async def generate_complete_book(self, book_id: str):
+        """
+        Generar libro completo: portada + todas las páginas + PDF
+        """
+        try:
+            db = SessionLocal()
+            book = db.query(Book).filter(Book.id == book_id).first()
+            if not book:
+                print(f"❌ Libro {book_id} no encontrado")
+                return
+            
+            book.status = 'generating'
+            db.commit()
+            
+            story_data = json.loads(book.book_data_json)
+            
+            print(f"🎨 Generando libro completo para {book.child_name}...")
+            
+            # 1. Generar portada (usando foto original como referencia)
+            print("📖 Generando portada con Ideogram...")
+            cover_filename = await self.ideogram.generate_cover(
+                story_data,
+                book.original_photo_path
+            )
+            
+            # 2. Generar todas las páginas (cada una usando la anterior como referencia)
+            page_filenames = []
+            previous_image = book.original_photo_path  # Primera página usa foto original
+            
+            if cover_filename:
+                previous_image = str(settings.previews_dir / cover_filename)  # Luego usa portada
+            
+            for i, page_data in enumerate(story_data['paginas'], 1):
+                print(f"🖼️ Generando página {i}/{len(story_data['paginas'])}...")
+                
+                page_filename = await self.ideogram.generate_page(
+                    page_data,
+                    story_data,
+                    previous_image,
+                    i
+                )
+                
+                page_filenames.append(page_filename)
+                
+                # Actualizar referencia para siguiente página
+                if page_filename:
+                    previous_image = str(settings.books_dir / page_filename)
+            
+            # 3. Crear PDF
+            print("📄 Creando PDF...")
+            pdf_filename = await self._create_pdf(book, story_data, cover_filename, page_filenames)
+            
+            # 4. Finalizar
+            book.status = 'completed'
+            book.pdf_path = pdf_filename
+            book.completed_at = func.now()
+            db.commit()
+            
+            print(f"🎉 Libro {book_id} completado")
+            
+        except Exception as e:
+            print(f"❌ Error generando libro {book_id}: {e}")
+            db = SessionLocal()
+            book = db.query(Book).filter(Book.id == book_id).first()
+            if book:
+                book.status = 'error'
+                book.generation_error = str(e)
+                db.commit()
+        finally:
+            db.close()
+    
+    async def _create_pdf(self, book: Book, story_data: Dict, cover_filename: Optional[str], page_filenames: List[Optional[str]]) -> Optional[str]:
+        """Crear PDF final"""
+        try:
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
             from reportlab.lib.pagesizes import A4
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
             from reportlab.lib.units import inch
-            from reportlab.lib.colors import black
-            from reportlab.pdfbase import pdfmetrics
-            from reportlab.pdfbase.ttfonts import TTFont
+            from reportlab.lib.colors import darkblue, black
+            from reportlab.lib.enums import TA_CENTER
             
             pdf_filename = f"libro_{book.child_name}_{book.id[:8]}.pdf"
             pdf_path = settings.pdfs_dir / pdf_filename
             
-            # Crear documento PDF
             doc = SimpleDocTemplate(str(pdf_path), pagesize=A4)
             story = []
-            
             styles = getSampleStyleSheet()
+            
             title_style = ParagraphStyle(
-                'CustomTitle',
+                'Title',
                 parent=styles['Title'],
-                fontSize=24,
-                spaceAfter=30,
-                textColor=black,
-                alignment=1  # Center
+                fontSize=28,
+                textColor=darkblue,
+                alignment=TA_CENTER,
+                fontName='Helvetica-Bold'
             )
             
             text_style = ParagraphStyle(
-                'CustomText',
+                'Text',
                 parent=styles['Normal'],
-                fontSize=14,
-                spaceAfter=20,
+                fontSize=16,
                 textColor=black,
-                alignment=1  # Center
+                alignment=TA_CENTER,
+                leading=22
             )
             
-            # Página de título
+            # Título
             story.append(Paragraph(story_data['titulo'], title_style))
-            story.append(Spacer(1, 0.5*inch))
-            story.append(Paragraph(f"Un cuento personalizado para {book.child_name}", text_style))
             story.append(Spacer(1, 0.5*inch))
             
             # Portada
-            if cover_path and (settings.books_dir / cover_path).exists():
-                img = RLImage(str(settings.books_dir / cover_path))
-                img.drawHeight = 6*inch
-                img.drawWidth = 4*inch
-                story.append(img)
-            
-            # Páginas del libro
-            for i, page_data in enumerate(story_data['paginas'], 1):
-                story.append(Spacer(1, 0.5*inch))
-                
-                # Imagen de la página
-                page_image_path = page_paths[i-1] if i-1 < len(page_paths) and page_paths[i-1] else None
-                if page_image_path and (settings.books_dir / page_image_path).exists():
-                    img = RLImage(str(settings.books_dir / page_image_path))
-                    img.drawHeight = 5*inch
-                    img.drawWidth = 4*inch
+            if cover_filename:
+                cover_path = settings.previews_dir / cover_filename
+                if cover_path.exists():
+                    img = RLImage(str(cover_path))
+                    img.drawHeight = 6*inch
+                    img.drawWidth = 6*inch
                     story.append(img)
-                    story.append(Spacer(1, 0.2*inch))
+            
+            story.append(Spacer(1, 1*inch))
+            
+            # Páginas
+            for i, page_data in enumerate(story_data['paginas'], 1):
+                page_filename = page_filenames[i-1] if i-1 < len(page_filenames) else None
                 
-                # Texto de la página
+                if page_filename:
+                    page_path = settings.books_dir / page_filename
+                    if page_path.exists():
+                        img = RLImage(str(page_path))
+                        img.drawHeight = 5.5*inch
+                        img.drawWidth = 5.5*inch
+                        story.append(img)
+                        story.append(Spacer(1, 0.3*inch))
+                
                 story.append(Paragraph(page_data['texto'], text_style))
-                
-                # Salto de página excepto en la última
-                if i < len(story_data['paginas']):
-                    story.append(Spacer(1, 2*inch))
+                story.append(Spacer(1, 1*inch))
             
-            # Generar PDF
             doc.build(story)
-            
-            print(f"📄 PDF generado: {pdf_filename}")
+            print(f"📄 PDF creado: {pdf_filename}")
             return pdf_filename
             
         except Exception as e:
             print(f"❌ Error creando PDF: {e}")
             return None
-    
-    def _fallback_story(self, child_name: str, age: int, num_pages: int) -> Dict:
-        """Historia de respaldo si falla la generación"""
-        pages = []
-        for i in range(1, num_pages + 1):
-            if i == 1:
-                text = f"Érase una vez {child_name}, un niño muy especial."
-            elif i == num_pages:
-                text = f"Y {child_name} vivió feliz para siempre."
-            else:
-                text = f"{child_name} continuó su increíble aventura."
-            
-            pages.append({"numero": i, "texto": text})
-        
-        return {
-            "titulo": f"Las Aventuras de {child_name}",
-            "tema": "Aventura y amistad",
-            "resumen": f"Una historia especial sobre las aventuras de {child_name}",
-            "paginas": pages
-        }
-    
-    async def _download_and_save_image(self, image_url: str, save_path: Path) -> bool:
-        """Descargar imagen de URL y guardar localmente"""
-        try:
-            import aiohttp
-            import aiofiles
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(image_url) as response:
-                    if response.status == 200:
-                        content = await response.read()
-                        
-                        async with aiofiles.open(save_path, 'wb') as f:
-                            await f.write(content)
-                        
-                        return True
-            
-            return False
-            
-        except Exception as e:
-            print(f"❌ Error descargando imagen: {e}")
-            return False
 
-# Instancia global del servicio
-openai_service = None
 
-def get_openai_service() -> OpenAIService:
-    """Obtener instancia del servicio OpenAI"""
-    global openai_service
-    if openai_service is None:
-        openai_service = OpenAIService()
-    return openai_service
+# Singleton
+_book_service = None
+
+def get_book_service() -> BookGenerationService:
+    """Obtener instancia del servicio"""
+    global _book_service
+    if _book_service is None:
+        _book_service = BookGenerationService()
+    return _book_service

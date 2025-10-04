@@ -8,8 +8,11 @@ jinja2==3.1.2
 sqlalchemy==2.0.23
 alembic==1.12.1
 
-# IA y procesamiento de imágenes
-openai==1.109.1
+# IA - Gemini para texto, Ideogram para imágenes
+google-generativeai==0.8.3
+ideogram-python==0.1.0
+
+# Procesamiento de imágenes
 pillow==10.1.0
 
 # HTTP requests asíncronos

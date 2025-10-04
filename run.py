@@ -13,11 +13,22 @@ def main():
     print(f"📍 URL: http://localhost:8000")
     print(f"🐛 Debug mode: {settings.debug}")
     
-    if not settings.openai_api_key:
-        print("⚠️  ADVERTENCIA: OPENAI_API_KEY no configurada")
-        print("   Configure su API key en el archivo .env")
+    # Verificar Gemini
+    if not settings.gemini_api_key:
+        print("⚠️  ADVERTENCIA: GEMINI_API_KEY no configurada")
+        print("   Configure su API key de Gemini en el archivo .env")
     else:
-        print("✅ OpenAI API configurada")
+        print("✅ Gemini API configurada")
+    
+    # Verificar Ideogram
+    if not settings.ideogram_api_key:
+        print("⚠️  ADVERTENCIA: IDEOGRAM_API_KEY no configurada")
+        print("   Configure su API key de Ideogram en el archivo .env")
+    else:
+        print("✅ Ideogram API configurada")
+    
+    if settings.gemini_api_key and settings.ideogram_api_key:
+        print("🎨 Stack completo: Gemini (texto) + Ideogram (imágenes)")
     
     print("-" * 50)
     

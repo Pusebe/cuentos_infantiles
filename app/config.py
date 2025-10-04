@@ -8,12 +8,16 @@ class Settings(BaseSettings):
     debug: bool = False
     secret_key: str = "fallback-secret-key-change-in-production"
     
-    # OpenAI
-    openai_api_key: str = ""
-    openai_model: str = "gpt-5-mini"  # GPT-5 nano para texto
-    openai_image_model: str = "dall-e-3"  # DALL-E 3 para imágenes
-    openai_image_quality: str = "standard"  # standard o hd para DALL-E 3
-    openai_image_size: str = "1024x1024"
+    # Gemini - Para texto e historia con vision
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    
+    # Ideogram - Para generación de imágenes
+    ideogram_api_key: str = ""
+    ideogram_model: str = "V_3"
+    ideogram_magic_prompt: bool = True
+    ideogram_aspect_ratio: str = "1x1"
+    ideogram_resolution: str = "1024x1024"
     
     # Stripe (para futuro uso)
     stripe_publishable_key: str = ""
@@ -35,16 +39,18 @@ class Settings(BaseSettings):
     pdfs_dir: Path = storage_dir / "pdfs"
     
     # Pricing (en céntimos para evitar decimales)
-    base_price: int = 1000  # 10€ = 1000 céntimos
-    price_per_extra_page: int = 80  # 0.80€ = 80 céntimos
+    base_price: int = 1000  # 10€
+    price_per_extra_page: int = 80  # 0.80€
     default_pages: int = 6
     
     # Rate limiting
-    free_previews_per_ip_per_day: int = 999
+    free_previews_per_ip_per_day: int = 999999
     
     class Config:
         env_file = ".env"
-        extra = "ignore"  # ESTO SOLUCIONA EL ERROR: ignora variables extra del .env
+        env_file_encoding = "utf-8"
+        extra = "ignore"
+        case_sensitive = False  # Permite GEMINI_API_KEY o gemini_api_key
 
 # Crear directorios necesarios
 def setup_directories(settings: Settings):
