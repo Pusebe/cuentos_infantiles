@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Ideogram - Para generación de imágenes
     ideogram_api_key: str = ""
     ideogram_model: str = "V_3"
-    ideogram_magic_prompt: bool = True
+    ideogram_magic_prompt: str = "ON"
     ideogram_aspect_ratio: str = "1x1"
     ideogram_resolution: str = "1024x1024"
     

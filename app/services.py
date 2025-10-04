@@ -52,7 +52,7 @@ class GeminiService:
         - Adaptada perfectamente para un niño de {age} años
         - {child_name} como protagonista heroico
         - {num_pages} páginas exactas
-        - Cada página: 1-2 frases cortas (ideales para ilustrar)
+        - Cada página: unas pocas (en funcion de la edad) frases cortas (ideales para ilustrar) 
         - Historia emocionante que los padres quieran comprar
         - Final feliz con lección positiva
 
@@ -256,7 +256,8 @@ class IdeogramService:
             form_data = aiohttp.FormData()
             form_data.add_field('prompt', prompt)
             form_data.add_field('model', settings.ideogram_model)
-            form_data.add_field('magic_prompt', str(settings.ideogram_magic_prompt).lower())
+            form_data.add_field('magic_prompt', 'ON')
+            form_data.add_field('style_type', 'AUTO')  # FIX: Obligatorio con character reference
             form_data.add_field('aspect_ratio', settings.ideogram_aspect_ratio)
             form_data.add_field('character_reference_images', image_data, 
                               filename='reference.jpg',
@@ -344,10 +345,12 @@ class BookGenerationService:
             
             # 2. Generar todas las páginas (cada una usando la anterior como referencia)
             page_filenames = []
-            previous_image = book.original_photo_path  # Primera página usa foto original
             
+            # FIX: Inicializar previous_image correctamente
             if cover_filename:
-                previous_image = str(settings.previews_dir / cover_filename)  # Luego usa portada
+                previous_image = str(settings.previews_dir / cover_filename)
+            else:
+                previous_image = book.original_photo_path
             
             for i, page_data in enumerate(story_data['paginas'], 1):
                 print(f"🖼️ Generando página {i}/{len(story_data['paginas'])}...")
@@ -355,15 +358,16 @@ class BookGenerationService:
                 page_filename = await self.ideogram.generate_page(
                     page_data,
                     story_data,
-                    previous_image,
+                    previous_image,  # Usa la imagen anterior
                     i
                 )
                 
                 page_filenames.append(page_filename)
                 
-                # Actualizar referencia para siguiente página
+                # FIX: Actualizar referencia AQUÍ para la siguiente página
                 if page_filename:
                     previous_image = str(settings.books_dir / page_filename)
+                # Si falla, mantiene la anterior (mejor que nada)
             
             # 3. Crear PDF
             print("📄 Creando PDF...")
