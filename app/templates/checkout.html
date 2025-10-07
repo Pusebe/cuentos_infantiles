@@ -1,1 +1,105 @@
-<!-- Payment page -->
+{% extends "base.html" %}
+{% block content %}
+<h1>💳 Comprar: {{ story_data.titulo }}</h1>
+
+<div style="display: flex; gap: 30px; margin: 20px 0;">
+    <div style="flex: 1;">
+        {% if cover_url %}
+            <img src="{{ cover_url }}" alt="Portada" style="max-width: 100%; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+        {% endif %}
+    </div>
+    
+    <div style="flex: 1;">
+        <h2>📖 Detalles del libro</h2>
+        <p><strong>Para:</strong> {{ book.child_name }}</p>
+        <p><strong>Edad:</strong> {{ book.child_age }} años</p>
+        <p><strong>Páginas:</strong> {{ book.total_pages }}</p>
+        <p><strong>Tema:</strong> {{ story_data.get('tema', 'Aventura') }}</p>
+        
+        <hr>
+        
+        <h3>💰 Precio</h3>
+        <p style="font-size: 24px; font-weight: bold; color: #007bff;">
+            {{ book.total_price_euros }}€
+        </p>
+        
+        <p style="font-size: 14px; color: #666;">
+            Precio base: {{ base_price }}€<br>
+            {% if book.total_pages > default_pages %}
+                Páginas extra: {{ book.total_pages - default_pages }} x {{ price_per_extra_page }}€
+            {% endif %}
+        </p>
+        
+        <hr>
+        
+        <h3>🔐 Pago (Modo Debug)</h3>
+        <form id="paymentForm" onsubmit="handlePayment(event)">
+            <label>Contraseña de debug:</label>
+            <input type="password" id="password" placeholder="Introduce contraseña" required style="width: 100%; padding: 10px; margin: 10px 0;">
+            
+            <button type="submit" style="width: 100%; padding: 15px; font-size: 18px; margin-top: 10px;">
+                🚀 Comprar y Generar Libro Completo
+            </button>
+        </form>
+        
+        <div id="message" style="margin-top: 20px; padding: 15px; border-radius: 5px; display: none;"></div>
+    </div>
+</div>
+
+<script>
+async function handlePayment(event) {
+    event.preventDefault();
+    
+    const password = document.getElementById('password').value;
+    const messageDiv = document.getElementById('message');
+    const submitBtn = event.target.querySelector('button');
+    
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⏳ Procesando...';
+    
+    try {
+        const response = await fetch('/api/books/{{ book.id }}/simulate-payment', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ password: password })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            messageDiv.style.display = 'block';
+            messageDiv.style.backgroundColor = '#d4edda';
+            messageDiv.style.color = '#155724';
+            messageDiv.innerHTML = `
+                <strong>✅ ¡Pago simulado exitoso!</strong><br>
+                Tu libro se está generando. Esto puede tardar varios minutos.<br>
+                <a href="/book/${data.book_id}" style="color: #155724; text-decoration: underline;">Ver estado del libro</a>
+            `;
+            
+            // Redirigir después de 3 segundos
+            setTimeout(() => {
+                window.location.href = '/book/{{ book.id }}';
+            }, 3000);
+        } else {
+            messageDiv.style.display = 'block';
+            messageDiv.style.backgroundColor = '#f8d7da';
+            messageDiv.style.color = '#721c24';
+            messageDiv.textContent = '❌ Error: ' + (data.detail || 'Contraseña incorrecta');
+            
+            submitBtn.disabled = false;
+            submitBtn.textContent = '🚀 Comprar y Generar Libro Completo';
+        }
+    } catch (error) {
+        messageDiv.style.display = 'block';
+        messageDiv.style.backgroundColor = '#f8d7da';
+        messageDiv.style.color = '#721c24';
+        messageDiv.textContent = '❌ Error de conexión: ' + error.message;
+        
+        submitBtn.disabled = false;
+        submitBtn.textContent = '🚀 Comprar y Generar Libro Completo';
+    }
+}
+</script>
+{% endblock %}

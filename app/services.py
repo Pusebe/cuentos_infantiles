@@ -1,12 +1,9 @@
 import google.generativeai as genai
 import json
 import asyncio
-import aiohttp
 import aiofiles
-import base64
 from pathlib import Path
 from typing import Dict, List, Optional
-from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 from .config import settings
 from .models import Book
@@ -55,6 +52,7 @@ class GeminiService:
         - Cada página: unas pocas (en funcion de la edad) frases cortas (ideales para ilustrar) 
         - Historia emocionante que los padres quieran comprar
         - Final feliz con lección positiva
+        - IMPORTANTE: Lista todos los personajes y objetos clave que aparecen en cada página para mantener consistencia visual
 
         RESPONDE EN FORMATO JSON EXACTO:
         {{
@@ -65,8 +63,13 @@ class GeminiService:
             "resumen": "Resumen de 1 frase",
             "leccion": "Qué aprenderá el niño",
             "paginas": [
-                {{"numero": 1, "texto": "Texto de la página 1", "escena": "Descripción de qué ilustrar"}},
-                {{"numero": 2, "texto": "Texto de la página 2", "escena": "Descripción de qué ilustrar"}},
+                {{
+                    "numero": 1, 
+                    "texto": "Texto de la página 1", 
+                    "escena": "Descripción de qué ilustrar",
+                    "personajes_presentes": ["nombre (descripción física breve)"],
+                    "objetos_clave": ["objeto importante con detalles"]
+                }},
                 ... hasta {num_pages} páginas
             ]
         }}
@@ -108,6 +111,9 @@ class GeminiService:
                 if key not in data:
                     raise ValueError(f"Falta clave: {key}")
             
+            # Añadir child_name al story_data
+            data['child_name'] = child_name
+            
             # Ajustar páginas si es necesario
             if len(data['paginas']) != num_pages:
                 print(f"⚠️ Ajustando páginas: {len(data['paginas'])} → {num_pages}")
@@ -118,7 +124,9 @@ class GeminiService:
                         data['paginas'].append({
                             "numero": len(data['paginas']) + 1,
                             "texto": f"{child_name} continuó su aventura.",
-                            "escena": "El niño en una escena de aventura"
+                            "escena": "El niño en una escena de aventura",
+                            "personajes_presentes": [f"{child_name}"],
+                            "objetos_clave": []
                         })
             
             return data
@@ -134,10 +142,13 @@ class GeminiService:
             pages.append({
                 "numero": i,
                 "texto": f"{child_name} vivió una gran aventura.",
-                "escena": f"{child_name} en una escena emocionante"
+                "escena": f"{child_name} en una escena emocionante",
+                "personajes_presentes": [f"{child_name}"],
+                "objetos_clave": []
             })
         
         return {
+            "child_name": child_name,
             "child_description": f"Niño de {age} años llamado {child_name}",
             "scene_context": "Ambiente de aventura",
             "titulo": f"Las Aventuras de {child_name}",
@@ -148,156 +159,221 @@ class GeminiService:
         }
 
 
-class IdeogramService:
-    """Servicio para Ideogram - Generación de imágenes con character reference"""
+class GeminiImageService:
+    """Servicio para Gemini 2.5 Flash Image - Generación de imágenes (portadas y páginas)"""
     
     def __init__(self):
-        if not settings.ideogram_api_key:
-            raise ValueError("IDEOGRAM_API_KEY no configurada")
+        if not settings.gemini_api_key:
+            raise ValueError("GEMINI_API_KEY no configurada")
         
-        self.api_key = settings.ideogram_api_key
-        self.base_url = "https://api.ideogram.ai/v1/ideogram-v3/generate"
+        genai.configure(api_key=settings.gemini_api_key)
+        self.model = genai.GenerativeModel('gemini-2.5-flash-image-preview')
         self.last_request = 0
-        self.min_delay = 2  # Rate limiting
-        print("🎨 Ideogram configurado correctamente")
+        self.min_delay = 1  # Rate limiting
+        print("🎨 Gemini Image Service configurado")
     
     async def generate_cover(self, story_data: Dict, reference_image_path: str) -> Optional[str]:
-        """
-        Genera portada usando la foto del niño como character reference
-        """
+        """Genera portada con Gemini y añade texto con PIL"""
         try:
+            child_name = story_data.get('child_name', 'el niño')
+            child_desc = story_data.get('child_description', 'un niño')
+            tema = story_data.get('tema', 'aventura')
+            titulo = story_data['titulo']
+            
+            # Prompt SIN texto - solo ilustración
+            prompt = f"Diseña una portada profesional de libro infantil en formato cuadrado 1:1 con ilustración colorida estilo animación mostrando como personaje principal a {child_desc} en una escena de {tema}.
+            
+            print(f"📝 Generando portada con Gemini...")
+            
+            # Usar foto como referencia
+            reference_image = Image.open(reference_image_path)
+            
             await self._respect_rate_limit()
             
-            child_desc = story_data.get('child_description', 'un niño')
-            
-            prompt = f"""
-            Portada profesional de libro infantil.
-            
-            TÍTULO: "{story_data['titulo']}" - texto grande, claro y perfectamente legible
-            SUBTÍTULO: "Un cuento para [nombre del niño]"
-            
-            PERSONAJE PRINCIPAL: {child_desc}
-            TEMA: {story_data.get('tema', 'aventura')}
-            
-            ESTILO: Ilustración Disney/Pixar de alta calidad, colores vibrantes,
-            diseño comercial que destaque en estanterías. El texto del título debe
-            ser perfecto sin errores. Portada que vale 10€.
-            """
-            
-            image_url = await self._generate_with_character_reference(
-                prompt,
-                reference_image_path
+            response = await asyncio.to_thread(
+                self.model.generate_content,
+                [prompt, reference_image]
             )
             
-            if image_url:
-                filename = f"cover_{secrets.token_urlsafe(8)}.png"
-                file_path = settings.previews_dir / filename
-                
-                if await self._download_image(image_url, file_path):
-                    print(f"✅ Portada generada: {filename}")
-                    return str(filename)
-            
-            return None
-            
-        except Exception as e:
-            print(f"❌ Error generando portada: {e}")
-            return None
-    
-    async def generate_page(self, page_data: Dict, story_data: Dict, reference_image_path: str, page_number: int) -> Optional[str]:
-        """
-        Genera página usando imagen anterior como referencia
-        """
-        try:
-            await self._respect_rate_limit()
-            
-            child_desc = story_data.get('child_description', 'un niño')
-            
-            prompt = f"""
-            Ilustración página {page_number} de libro infantil.
-            
-            ESCENA: {page_data.get('escena', page_data['texto'])}
-            PERSONAJE: {child_desc} (debe ser consistente con la referencia)
-            TEMA: {story_data.get('tema', 'aventura')}
-            
-            ESTILO: Ilustración Disney/Pixar, colores vibrantes, apropiada para niños.
-            El personaje debe ser reconocible y consistente.
-            SIN TEXTO en la imagen.
-            """
-            
-            image_url = await self._generate_with_character_reference(
-                prompt,
-                reference_image_path
-            )
-            
-            if image_url:
-                filename = f"page_{page_number:02d}_{secrets.token_urlsafe(8)}.png"
-                file_path = settings.books_dir / filename
-                
-                if await self._download_image(image_url, file_path):
-                    print(f"✅ Página {page_number} generada: {filename}")
-                    return str(filename)
-            
-            return None
-            
-        except Exception as e:
-            print(f"❌ Error generando página {page_number}: {e}")
-            return None
-    
-    async def _generate_with_character_reference(self, prompt: str, reference_image_path: str) -> Optional[str]:
-        """
-        Genera imagen usando Ideogram con character reference
-        """
-        try:
-            # Leer imagen de referencia
-            with open(reference_image_path, 'rb') as f:
-                image_data = f.read()
-            
-            # Preparar request multipart
-            form_data = aiohttp.FormData()
-            form_data.add_field('prompt', prompt)
-            form_data.add_field('model', settings.ideogram_model)
-            form_data.add_field('magic_prompt', 'ON')
-            form_data.add_field('style_type', 'AUTO')  # FIX: Obligatorio con character reference
-            form_data.add_field('aspect_ratio', settings.ideogram_aspect_ratio)
-            form_data.add_field('character_reference_images', image_data, 
-                              filename='reference.jpg',
-                              content_type='image/jpeg')
-            
-            headers = {
-                'Api-Key': self.api_key
-            }
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self.base_url, data=form_data, headers=headers) as response:
-                    if response.status == 200:
-                        result = await response.json()
+            # Extraer imagen
+            if response.candidates and response.candidates[0].content.parts:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'inline_data') and part.inline_data:
+                        image_data = part.inline_data.data
                         
-                        # Extraer URL de la imagen generada
-                        if 'data' in result and len(result['data']) > 0:
-                            return result['data'][0]['url']
-                    else:
-                        error_text = await response.text()
-                        print(f"❌ Ideogram error {response.status}: {error_text}")
-                        return None
+                        # Guardar temporalmente
+                        temp_filename = f"temp_cover_{secrets.token_urlsafe(8)}.png"
+                        temp_path = settings.previews_dir / temp_filename
+                        
+                        async with aiofiles.open(temp_path, 'wb') as f:
+                            await f.write(image_data)
+                        
+                        # Añadir texto con PIL
+                        final_filename = await self._add_text_to_cover(
+                            str(temp_path),
+                            titulo,
+                            child_name
+                        )
+                        
+                        # Borrar temporal
+                        try:
+                            temp_path.unlink(missing_ok=True)
+                        except:
+                            pass
+                        
+                        print(f"✅ Portada generada con texto: {final_filename}")
+                        return final_filename
+            
+            print("❌ No se pudo extraer portada de Gemini")
+            return None
             
         except Exception as e:
-            print(f"❌ Error en Ideogram API: {e}")
+            print(f"❌ Error generando portada con Gemini: {e}")
             return None
     
-    async def _download_image(self, url: str, save_path: Path) -> bool:
-        """Descargar imagen de URL"""
+    async def _add_text_to_cover(self, image_path: str, titulo: str, child_name: str) -> str:
+        """Añadir texto a la portada con PIL"""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        content = await response.read()
-                        async with aiofiles.open(save_path, 'wb') as f:
-                            await f.write(content)
-                        return True
-            return False
+            from PIL import Image as PILImage, ImageDraw, ImageFont
+            
+            # Abrir imagen
+            img = PILImage.open(image_path)
+            draw = ImageDraw.Draw(img)
+            width, height = img.size
+            
+            # Calcular zona de texto (25% inferior)
+            text_zone_height = int(height * 0.25)
+            text_zone_y = height - text_zone_height
+            
+            # Añadir fondo semi-transparente
+            overlay = PILImage.new('RGBA', img.size, (0, 0, 0, 0))
+            overlay_draw = ImageDraw.Draw(overlay)
+            overlay_draw.rectangle(
+                [(0, text_zone_y), (width, height)],
+                fill=(0, 0, 0, 128)  # Negro 50% transparente
+            )
+            img = PILImage.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
+            draw = ImageDraw.Draw(img)
+            
+            # Intentar usar fuente bold, si falla usar default
+            try:
+                title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
+                subtitle_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32)
+            except:
+                title_font = ImageFont.load_default()
+                subtitle_font = ImageFont.load_default()
+            
+            # Dibujar título
+            title_bbox = draw.textbbox((0, 0), titulo, font=title_font)
+            title_width = title_bbox[2] - title_bbox[0]
+            title_x = (width - title_width) // 2
+            title_y = text_zone_y + 20
+            
+            draw.text((title_x, title_y), titulo, fill='white', font=title_font)
+            
+            # Dibujar subtítulo
+            subtitle = f"Un libro para {child_name}"
+            subtitle_bbox = draw.textbbox((0, 0), subtitle, font=subtitle_font)
+            subtitle_width = subtitle_bbox[2] - subtitle_bbox[0]
+            subtitle_x = (width - subtitle_width) // 2
+            subtitle_y = title_y + 60
+            
+            draw.text((subtitle_x, subtitle_y), subtitle, fill='white', font=subtitle_font)
+            
+            # Guardar imagen final
+            final_filename = f"cover_{secrets.token_urlsafe(8)}.png"
+            final_path = settings.previews_dir / final_filename
+            img.save(final_path)
+            
+            return final_filename
+            
         except Exception as e:
-            print(f"❌ Error descargando imagen: {e}")
-            return False
+            print(f"❌ Error añadiendo texto a portada: {e}")
+            # Si falla, devolver la imagen sin texto
+            return Path(image_path).name
+    
+    async def generate_page_image(self, prompt: str, reference_images: List[str]) -> Optional[str]:
+        """
+        Genera imagen con Gemini usando múltiples imágenes de referencia (collage)
+        """
+        try:
+            await self._respect_rate_limit()
+            
+            # Crear collage de referencias si hay múltiples
+            if len(reference_images) > 1:
+                collage_path = await self._create_reference_collage(reference_images)
+                reference_image = Image.open(collage_path)
+            else:
+                reference_image = Image.open(reference_images[0])
+            
+            # Generar imagen
+            response = await asyncio.to_thread(
+                self.model.generate_content,
+                [prompt, reference_image]
+            )
+            
+            # Extraer y guardar imagen
+            if response.candidates and response.candidates[0].content.parts:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'inline_data') and part.inline_data:
+                        image_data = part.inline_data.data
+                        filename = f"gemini_page_{secrets.token_urlsafe(8)}.png"
+                        file_path = settings.books_dir / filename
+                        
+                        async with aiofiles.open(file_path, 'wb') as f:
+                            await f.write(image_data)
+                        
+                        return str(filename)
+            
+            print("❌ No se pudo extraer imagen de la respuesta de Gemini")
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error generando imagen con Gemini: {e}")
+            return None
+    
+    async def _create_reference_collage(self, image_paths: List[str]) -> str:
+        """Crear collage de imágenes de referencia"""
+        try:
+            from PIL import Image as PILImage
+            
+            # Limitar a máximo 4 referencias (2x2 grid)
+            paths = image_paths[:4]
+            images = [PILImage.open(p) for p in paths]
+            
+            # Redimensionar todas a mismo tamaño
+            size = 512
+            images = [img.resize((size, size), PILImage.Resampling.LANCZOS) for img in images]
+            
+            # Crear collage
+            if len(images) == 1:
+                collage = images[0]
+            elif len(images) == 2:
+                collage = PILImage.new('RGB', (size * 2, size))
+                collage.paste(images[0], (0, 0))
+                collage.paste(images[1], (size, 0))
+            elif len(images) == 3:
+                collage = PILImage.new('RGB', (size * 2, size * 2))
+                collage.paste(images[0], (0, 0))
+                collage.paste(images[1], (size, 0))
+                collage.paste(images[2], (0, size))
+            else:  # 4 imágenes
+                collage = PILImage.new('RGB', (size * 2, size * 2))
+                collage.paste(images[0], (0, 0))
+                collage.paste(images[1], (size, 0))
+                collage.paste(images[2], (0, size))
+                collage.paste(images[3], (size, size))
+            
+            # Guardar collage temporal
+            collage_path = settings.books_dir / f"collage_{secrets.token_urlsafe(8)}.png"
+            collage.save(collage_path)
+            
+            return str(collage_path)
+            
+        except Exception as e:
+            print(f"❌ Error creando collage: {e}")
+            # Fallback: devolver primera imagen
+            return image_paths[0]
     
     async def _respect_rate_limit(self):
         """Rate limiting"""
@@ -316,11 +392,11 @@ class BookGenerationService:
     
     def __init__(self):
         self.gemini = GeminiService()
-        self.ideogram = IdeogramService()
+        self.gemini_image = GeminiImageService()
     
     async def generate_complete_book(self, book_id: str):
         """
-        Generar libro completo: portada + todas las páginas + PDF
+        Generar libro completo: reutilizar portada + páginas con Gemini + PDF
         """
         try:
             db = SessionLocal()
@@ -336,38 +412,49 @@ class BookGenerationService:
             
             print(f"🎨 Generando libro completo para {book.child_name}...")
             
-            # 1. Generar portada (usando foto original como referencia)
-            print("📖 Generando portada con Ideogram...")
-            cover_filename = await self.ideogram.generate_cover(
-                story_data,
-                book.original_photo_path
-            )
-            
-            # 2. Generar todas las páginas (cada una usando la anterior como referencia)
-            page_filenames = []
-            
-            # FIX: Inicializar previous_image correctamente
-            if cover_filename:
-                previous_image = str(settings.previews_dir / cover_filename)
+            # 1. Verificar que existe la portada del preview
+            if not book.cover_preview_path:
+                print("❌ No hay portada de preview, generando con Gemini...")
+                cover_filename = await self.gemini_image.generate_cover(
+                    story_data,
+                    book.original_photo_path
+                )
+                if not cover_filename:
+                    raise Exception("No se pudo generar la portada")
             else:
-                previous_image = book.original_photo_path
+                print(f"✅ Reutilizando portada existente: {book.cover_preview_path}")
+                cover_filename = book.cover_preview_path
+            
+            # 2. Generar páginas con Gemini usando collage de referencias
+            page_filenames = []
+            reference_images = [str(settings.previews_dir / cover_filename)]  # Empezar con portada
             
             for i, page_data in enumerate(story_data['paginas'], 1):
-                print(f"🖼️ Generando página {i}/{len(story_data['paginas'])}...")
+                print(f"🖼️ Generando página {i}/{len(story_data['paginas'])} con Gemini...")
                 
-                page_filename = await self.ideogram.generate_page(
-                    page_data,
-                    story_data,
-                    previous_image,  # Usa la imagen anterior
-                    i
+                # Construir prompt con personajes y objetos
+                personajes = page_data.get('personajes_presentes', [])
+                objetos = page_data.get('objetos_clave', [])
+                
+                personajes_str = f"Personajes: {', '.join(personajes)}. " if personajes else ""
+                objetos_str = f"Objetos importantes: {', '.join(objetos)}. " if objetos else ""
+                
+                prompt = f"Ilustración cuadrada en formato 1:1 de cuento infantil mostrando: {page_data.get('escena', page_data['texto'])}. {personajes_str}{objetos_str}Estilo de ilustración colorida apropiada para niños. Deja el 25% inferior de la imagen con colores suaves sin elementos importantes para añadir texto después. SIN NINGÚN TEXTO en la imagen. Mantén consistencia con las imágenes de referencia."
+                
+                page_filename = await self.gemini_image.generate_page_image(
+                    prompt,
+                    reference_images[-3:]  # Últimas 3 referencias (portada + 2 páginas anteriores)
                 )
+                
+                if not page_filename:
+                    print(f"⚠️ Falló página {i}, continuando...")
+                    page_filenames.append(None)
+                    continue
                 
                 page_filenames.append(page_filename)
                 
-                # FIX: Actualizar referencia AQUÍ para la siguiente página
-                if page_filename:
-                    previous_image = str(settings.books_dir / page_filename)
-                # Si falla, mantiene la anterior (mejor que nada)
+                # Añadir página generada al pool de referencias
+                reference_images.append(str(settings.books_dir / page_filename))
             
             # 3. Crear PDF
             print("📄 Creando PDF...")
@@ -393,72 +480,76 @@ class BookGenerationService:
             db.close()
     
     async def _create_pdf(self, book: Book, story_data: Dict, cover_filename: Optional[str], page_filenames: List[Optional[str]]) -> Optional[str]:
-        """Crear PDF final"""
+        """Crear PDF final con imágenes a página completa y texto superpuesto"""
         try:
-            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
-            from reportlab.lib.pagesizes import A4
-            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-            from reportlab.lib.units import inch
-            from reportlab.lib.colors import darkblue, black
-            from reportlab.lib.enums import TA_CENTER
+            from reportlab.lib.pagesizes import inch
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.colors import Color
+            
+            PAGE_SIZE = (8.5*inch, 8.5*inch)  # Cuadrado 8.5x8.5"
             
             pdf_filename = f"libro_{book.child_name}_{book.id[:8]}.pdf"
             pdf_path = settings.pdfs_dir / pdf_filename
             
-            doc = SimpleDocTemplate(str(pdf_path), pagesize=A4)
-            story = []
-            styles = getSampleStyleSheet()
+            # Crear canvas para control total
+            c = canvas.Canvas(str(pdf_path), pagesize=PAGE_SIZE)
+            width, height = PAGE_SIZE
             
-            title_style = ParagraphStyle(
-                'Title',
-                parent=styles['Title'],
-                fontSize=28,
-                textColor=darkblue,
-                alignment=TA_CENTER,
-                fontName='Helvetica-Bold'
-            )
-            
-            text_style = ParagraphStyle(
-                'Text',
-                parent=styles['Normal'],
-                fontSize=16,
-                textColor=black,
-                alignment=TA_CENTER,
-                leading=22
-            )
-            
-            # Título
-            story.append(Paragraph(story_data['titulo'], title_style))
-            story.append(Spacer(1, 0.5*inch))
-            
-            # Portada
+            # Portada a página completa
             if cover_filename:
                 cover_path = settings.previews_dir / cover_filename
                 if cover_path.exists():
-                    img = RLImage(str(cover_path))
-                    img.drawHeight = 6*inch
-                    img.drawWidth = 6*inch
-                    story.append(img)
+                    c.drawImage(str(cover_path), 0, 0, width=width, height=height, preserveAspectRatio=True, anchor='c')
+                    c.showPage()
             
-            story.append(Spacer(1, 1*inch))
-            
-            # Páginas
+            # Páginas con imagen completa + texto superpuesto
             for i, page_data in enumerate(story_data['paginas'], 1):
                 page_filename = page_filenames[i-1] if i-1 < len(page_filenames) else None
                 
                 if page_filename:
                     page_path = settings.books_dir / page_filename
                     if page_path.exists():
-                        img = RLImage(str(page_path))
-                        img.drawHeight = 5.5*inch
-                        img.drawWidth = 5.5*inch
-                        story.append(img)
-                        story.append(Spacer(1, 0.3*inch))
+                        # Imagen a página completa
+                        c.drawImage(str(page_path), 0, 0, width=width, height=height, preserveAspectRatio=True, anchor='c')
                 
-                story.append(Paragraph(page_data['texto'], text_style))
-                story.append(Spacer(1, 1*inch))
+                # Área de texto con fondo semi-transparente
+                text_height = 2*inch
+                c.setFillColor(Color(0, 0, 0, alpha=0.5))  # Negro 50% transparente
+                c.rect(0, 0, width, text_height, fill=1, stroke=0)
+                
+                # Texto en blanco
+                c.setFillColor(Color(1, 1, 1, alpha=1))  # Blanco
+                c.setFont("Helvetica-Bold", 18)
+                
+                texto = page_data['texto']
+                # Word wrap simple
+                max_width = width - inch
+                lines = []
+                words = texto.split()
+                current_line = ""
+                
+                for word in words:
+                    test_line = current_line + " " + word if current_line else word
+                    if c.stringWidth(test_line, "Helvetica-Bold", 18) < max_width:
+                        current_line = test_line
+                    else:
+                        if current_line:
+                            lines.append(current_line)
+                        current_line = word
+                
+                if current_line:
+                    lines.append(current_line)
+                
+                # Dibujar líneas alineadas a la izquierda
+                y_start = text_height - 0.5*inch
+                x_left = 0.5*inch  # Margen izquierdo
+                for line in lines:
+                    c.drawString(x_left, y_start, line)
+                    y_start -= 24  # Espaciado entre líneas
+                
+                c.showPage()
             
-            doc.build(story)
+            c.save()
             print(f"📄 PDF creado: {pdf_filename}")
             return pdf_filename
             

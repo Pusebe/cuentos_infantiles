@@ -1,8 +1,119 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>{{ story_data.titulo or "Libro de " + book.child_name }}</h1>
-<p>Estado: {{ book.status }}</p>
-{% if book.pdf_path %}
-    <a href="/storage/pdfs/{{ book.pdf_path }}">Descargar PDF</a>
-{% endif %}
+
+<div id="loading" style="display: none; text-align: center; padding: 40px;">
+    <div class="spinner"></div>
+    <h2 id="loading-message">Generando tu libro completo...</h2>
+    <p id="loading-detail" style="color: #666; margin-top: 10px;"></p>
+    <div id="progress-bar" style="width: 80%; max-width: 400px; height: 30px; background: #f0f0f0; border-radius: 15px; margin: 20px auto; overflow: hidden;">
+        <div id="progress-fill" style="height: 100%; background: linear-gradient(90deg, #007bff, #0056b3); width: 0%; transition: width 0.3s;"></div>
+    </div>
+    <p id="progress-text" style="font-weight: bold;">0%</p>
+</div>
+
+<div id="content" style="display: none;">
+    <h1>{{ story_data.titulo or "Libro de " + book.child_name }}</h1>
+    <p><strong>Estado:</strong> <span id="status">{{ book.status }}</span></p>
+    
+    <div style="margin: 20px 0;">
+        <p><strong>Para:</strong> {{ book.child_name }} ({{ book.child_age }} años)</p>
+        <p><strong>Páginas:</strong> {{ book.total_pages }}</p>
+        
+        <div id="pdf-download" style="display: none; margin-top: 30px; padding: 20px; background: #d4edda; border-radius: 10px;">
+            <h2 style="color: #155724;">¡Tu libro está listo!</h2>
+            <a id="pdf-link" href="#" download style="display: inline-block; padding: 15px 30px; background: #28a745; color: white; text-decoration: none; border-radius: 5px; font-size: 18px; margin-top: 10px;">
+                📥 Descargar PDF
+            </a>
+        </div>
+    </div>
+    
+    <div id="error-message" style="display: none; padding: 15px; background: #f8d7da; color: #721c24; border-radius: 5px; margin-top: 20px;"></div>
+</div>
+
+<style>
+.spinner {
+    border: 8px solid #f3f3f3;
+    border-top: 8px solid #28a745;
+    border-radius: 50%;
+    width: 80px;
+    height: 80px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+</style>
+
+<script>
+const bookId = '{{ book.id }}';
+const initialStatus = '{{ book.status }}';
+const totalPages = {{ book.total_pages }};
+let currentPage = 0;
+
+async function checkStatus() {
+    try {
+        const response = await fetch(`/api/books/${bookId}/status`);
+        const data = await response.json();
+        
+        document.getElementById('status').textContent = data.status;
+        
+        if (data.status === 'paid' || data.status === 'generating') {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('content').style.display = 'none';
+            
+            // Simular progreso (en realidad necesitarías que el backend te diga la página actual)
+            currentPage = Math.min(currentPage + 1, totalPages);
+            const progress = (currentPage / (totalPages + 2)) * 100; // +2 por portada y PDF
+            
+            document.getElementById('progress-fill').style.width = progress + '%';
+            document.getElementById('progress-text').textContent = Math.round(progress) + '%';
+            
+            if (currentPage === 0) {
+                document.getElementById('loading-detail').textContent = 'Preparando el libro...';
+            } else if (currentPage <= totalPages) {
+                document.getElementById('loading-detail').textContent = `Generando página ${currentPage}/${totalPages}...`;
+            } else {
+                document.getElementById('loading-detail').textContent = 'Creando PDF final...';
+            }
+            
+            setTimeout(checkStatus, 5000);
+        }
+        else if (data.status === 'completed') {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+            
+            if (data.pdf_url) {
+                document.getElementById('pdf-download').style.display = 'block';
+                document.getElementById('pdf-link').href = data.pdf_url;
+            }
+        }
+        else if (data.status === 'error') {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+            document.getElementById('error-message').style.display = 'block';
+            document.getElementById('error-message').textContent = 'Error generando libro: ' + (data.error || 'Error desconocido');
+        }
+        
+    } catch (error) {
+        console.error('Error checking status:', error);
+        setTimeout(checkStatus, 5000);
+    }
+}
+
+// Iniciar polling si está generando
+if (initialStatus === 'paid' || initialStatus === 'generating') {
+    checkStatus();
+} else if (initialStatus === 'completed') {
+    document.getElementById('content').style.display = 'block';
+    const pdfUrl = '{{ pdf_url }}';
+    if (pdfUrl && pdfUrl !== 'None') {
+        document.getElementById('pdf-download').style.display = 'block';
+        document.getElementById('pdf-link').href = pdfUrl;
+    }
+}
+</script>
+
 {% endblock %}

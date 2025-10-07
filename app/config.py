@@ -3,6 +3,9 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
+
+    # Debug
+    debug_payment_password: str = "test1234"  # Contraseña para simular pagos en debug
     # App
     app_name: str = "Generador de Libros Infantiles"
     debug: bool = False
@@ -14,8 +17,10 @@ class Settings(BaseSettings):
     
     # Ideogram - Para generación de imágenes
     ideogram_api_key: str = ""
-    ideogram_model: str = "V_3"
-    ideogram_magic_prompt: str = "ON"
+    ideogram_model_cover: str = "V_3_TURBO"  # Portada con character reference
+    ideogram_model_pages: str = "V_3_TURBO"  # Páginas con character reference
+    ideogram_magic_prompt_cover: bool = True  # ON para portadas
+    ideogram_magic_prompt_pages: bool = True  # ON para páginas
     ideogram_aspect_ratio: str = "1x1"
     ideogram_resolution: str = "1024x1024"
     

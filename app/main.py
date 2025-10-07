@@ -74,28 +74,12 @@ async def view_preview(request: Request, book_id: str, db: Session = Depends(get
                 "error_code": 404
             })
         
-        if book.status == 'preview':
-            return templates.TemplateResponse("error.html", {
-                "request": request,
-                "error": "El libro aún se está procesando. Actualiza la página en unos segundos.",
-                "error_code": 202,
-                "book": book,
-                "refresh_in": 5
-            })
-        
         if book.status == 'preview_error':
             return templates.TemplateResponse("error.html", {
                 "request": request,
                 "error": f"Error generando el preview: {book.generation_error}",
                 "error_code": 500,
                 "book": book
-            })
-        
-        if book.status not in ['preview_ready', 'paid', 'generating', 'completed']:
-            return templates.TemplateResponse("error.html", {
-                "request": request,
-                "error": "Este libro no está disponible para visualización",
-                "error_code": 403
             })
         
         story_data = {}
@@ -109,7 +93,6 @@ async def view_preview(request: Request, book_id: str, db: Session = Depends(get
             "request": request,
             "book": book,
             "story_data": story_data,
-            "is_preview": book.status == 'preview_ready',
             "cover_url": f"/storage/previews/{book.cover_preview_path}" if book.cover_preview_path else None,
             "base_price": settings.base_price / 100,
             "price_per_extra_page": settings.price_per_extra_page / 100
@@ -127,7 +110,7 @@ async def view_preview(request: Request, book_id: str, db: Session = Depends(get
 
 @app.get("/book/{book_id}", response_class=HTMLResponse)
 async def view_complete_book(request: Request, book_id: str, db: Session = Depends(get_db)):
-    """Ver libro completo (solo si está pagado y completado)"""
+    """Ver libro completo (después de pagar)"""
     try:
         book = db.query(Book).filter(Book.id == book_id).first()
         if not book:
@@ -137,27 +120,10 @@ async def view_complete_book(request: Request, book_id: str, db: Session = Depen
                 "error_code": 404
             })
         
-        if book.status == 'generating':
+        if book.status not in ['paid', 'generating', 'completed', 'error']:
             return templates.TemplateResponse("error.html", {
                 "request": request,
-                "error": "Tu libro se está generando. Te avisaremos por email cuando esté listo.",
-                "error_code": 202,
-                "book": book,
-                "refresh_in": 30
-            })
-        
-        if book.status == 'error':
-            return templates.TemplateResponse("error.html", {
-                "request": request,
-                "error": f"Error generando el libro: {book.generation_error}",
-                "error_code": 500,
-                "book": book
-            })
-        
-        if book.status != 'completed':
-            return templates.TemplateResponse("error.html", {
-                "request": request,
-                "error": "Este libro no está disponible. Debe estar pagado y completado.",
+                "error": "Este libro debe estar pagado para verlo aquí",
                 "error_code": 403
             })
         
@@ -215,8 +181,8 @@ async def checkout_page(request: Request, book_id: str, db: Session = Depends(ge
             else:
                 return templates.TemplateResponse("error.html", {
                     "request": request,
-                    "error": "Este libro ya está pagado y se está generando",
-                    "error_code": 202,
+                    "error": "Este libro ya está pagado",
+                    "error_code": 400,
                     "book": book
                 })
         

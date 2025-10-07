@@ -1,10 +1,125 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Preview: {{ book.title or "Libro de " + book.child_name }}</h1>
-<p>Estado: {{ book.status }}</p>
-{% if cover_url %}
-    <img src="{{ cover_url }}" alt="Portada" style="max-width: 300px;">
-{% endif %}
-<p>Precio: {{ book.total_price_euros }}€</p>
-<a href="/checkout/{{ book.id }}">Comprar libro completo</a>
+
+<div id="loading" style="display: none; text-align: center; padding: 40px;">
+    <div class="spinner"></div>
+    <h2 id="loading-message">Generando tu preview...</h2>
+    <p id="loading-detail" style="color: #666; margin-top: 10px;"></p>
+</div>
+
+<div id="content" style="display: none;">
+    <h1>Preview: {{ book.title or "Libro de " + book.child_name }}</h1>
+    <p><strong>Estado:</strong> <span id="status">{{ book.status }}</span></p>
+    
+    <div style="display: flex; gap: 30px; margin: 20px 0;">
+        <div style="flex: 1;">
+            <div id="cover-container">
+                {% if cover_url %}
+                    <img src="{{ cover_url }}" alt="Portada" style="max-width: 100%; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                {% endif %}
+            </div>
+        </div>
+        
+        <div style="flex: 1;">
+            <h2>Detalles del libro</h2>
+            <p><strong>Para:</strong> {{ book.child_name }}</p>
+            <p><strong>Edad:</strong> {{ book.child_age }} años</p>
+            <p><strong>Páginas:</strong> {{ book.total_pages }}</p>
+            
+            <div id="story-info" style="display: none;">
+                <p><strong>Tema:</strong> <span id="story-theme"></span></p>
+                <p><strong>Resumen:</strong> <span id="story-summary"></span></p>
+            </div>
+            
+            <hr>
+            
+            <h3>Precio</h3>
+            <p style="font-size: 24px; font-weight: bold; color: #007bff;">
+                {{ book.total_price_euros }}€
+            </p>
+            
+            <div id="buy-button-container" style="display: none; margin-top: 20px;">
+                <a href="/checkout/{{ book.id }}" style="display: inline-block; padding: 15px 30px; background: #28a745; color: white; text-decoration: none; border-radius: 5px; font-size: 18px;">
+                    Comprar libro completo
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div id="error-message" style="display: none; padding: 15px; background: #f8d7da; color: #721c24; border-radius: 5px; margin-top: 20px;"></div>
+</div>
+
+<style>
+.spinner {
+    border: 8px solid #f3f3f3;
+    border-top: 8px solid #007bff;
+    border-radius: 50%;
+    width: 60px;
+    height: 60px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+</style>
+
+<script>
+const bookId = '{{ book.id }}';
+const initialStatus = '{{ book.status }}';
+
+async function checkStatus() {
+    try {
+        const response = await fetch(`/api/books/${bookId}/status`);
+        const data = await response.json();
+        
+        document.getElementById('status').textContent = data.status;
+        
+        if (data.status === 'preview') {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('content').style.display = 'none';
+            document.getElementById('loading-message').textContent = 'Generando tu preview...';
+            document.getElementById('loading-detail').textContent = 'Esto puede tardar 30-60 segundos';
+            setTimeout(checkStatus, 3000);
+        } 
+        else if (data.status === 'preview_ready') {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+            
+            if (data.cover_preview_url) {
+                document.getElementById('cover-container').innerHTML = 
+                    `<img src="${data.cover_preview_url}" alt="Portada" style="max-width: 100%; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">`;
+            }
+            
+            if (data.story_preview) {
+                document.getElementById('story-info').style.display = 'block';
+                document.getElementById('story-summary').textContent = data.story_preview;
+            }
+            
+            document.getElementById('buy-button-container').style.display = 'block';
+        }
+        else if (data.status === 'preview_error') {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+            document.getElementById('error-message').style.display = 'block';
+            document.getElementById('error-message').textContent = 'Error generando preview: ' + (data.error || 'Error desconocido');
+        }
+        
+    } catch (error) {
+        console.error('Error checking status:', error);
+        setTimeout(checkStatus, 5000);
+    }
+}
+
+// Iniciar polling si no está listo
+if (initialStatus === 'preview') {
+    checkStatus();
+} else if (initialStatus === 'preview_ready') {
+    document.getElementById('content').style.display = 'block';
+    document.getElementById('buy-button-container').style.display = 'block';
+}
+</script>
+
 {% endblock %}

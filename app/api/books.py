@@ -6,6 +6,8 @@ import json
 import secrets
 from pathlib import Path
 
+from sqlalchemy.sql import func
+
 from ..database import get_db, check_rate_limit, record_action, SessionLocal
 from ..models import Book, BookResponse
 from ..services import get_book_service
@@ -59,7 +61,7 @@ async def create_book_preview(
     db: Session = Depends(get_db)
 ):
     """
-    Crear preview usando Gemini + Ideogram
+    Crear preview usando solo Gemini (historia + portada)
     """
     # Rate limiting
     client_ip = get_client_ip(request)
@@ -99,7 +101,7 @@ async def create_book_preview(
         record_action(db, client_ip, "free_preview")
         
         # Generar en background
-        background_tasks.add_task(generate_preview_gemini_ideogram, book.id)
+        background_tasks.add_task(generate_preview_with_gemini, book.id)
         
         print(f"✅ Preview creado: {book.id}")
         return BookResponse.from_orm(book)
@@ -108,9 +110,9 @@ async def create_book_preview(
         print(f"❌ Error creando preview: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-async def generate_preview_gemini_ideogram(book_id: str):
+async def generate_preview_with_gemini(book_id: str):
     """
-    Generar preview: Gemini (historia) + Ideogram (portada)
+    Generar preview: Gemini para historia y portada
     """
     try:
         db_session = SessionLocal()
@@ -132,9 +134,9 @@ async def generate_preview_gemini_ideogram(book_id: str):
             num_pages=book.total_pages
         )
         
-        # 2. Ideogram: Generar portada preview
-        print(f"🎨 Ideogram generando portada para {book_id}...")
-        cover_filename = await service.ideogram.generate_cover(
+        # 2. Gemini Image: Generar portada preview
+        print(f"🎨 Gemini generando portada para {book_id}...")
+        cover_filename = await service.gemini_image.generate_cover(
             story_data=story_data,
             reference_image_path=book.original_photo_path
         )
@@ -258,3 +260,44 @@ async def delete_book(book_id: str, db: Session = Depends(get_db)):
     db.commit()
     
     return {"message": "Libro eliminado exitosamente"}
+
+@router.post("/{book_id}/simulate-payment")
+async def simulate_payment(
+    book_id: str,
+    password: dict,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Simular pago con contraseña (solo para debug)
+    """
+    book = db.query(Book).filter(Book.id == book_id).first()
+    if not book:
+        raise HTTPException(status_code=404, detail="Libro no encontrado")
+    
+    if book.status != 'preview_ready':
+        raise HTTPException(status_code=400, detail="El libro debe estar en preview_ready")
+    
+    # Verificar contraseña
+    if password.get('password') != settings.debug_payment_password:
+        raise HTTPException(status_code=401, detail="Contraseña incorrecta")
+    
+    # Marcar como pagado
+    book.status = 'paid'
+    book.amount_paid = book.total_price_cents
+    book.paid_at = func.now()
+    book.payment_intent_id = f"debug_{secrets.token_urlsafe(16)}"
+    db.commit()
+    
+    print(f"💰 Pago simulado exitoso para libro {book_id}")
+    
+    # Generar libro completo en background
+    service = get_book_service()
+    background_tasks.add_task(service.generate_complete_book, book_id)
+    
+    return {
+        "message": "Pago simulado exitoso",
+        "book_id": book.id,
+        "status": "paid",
+        "generating": True
+    }

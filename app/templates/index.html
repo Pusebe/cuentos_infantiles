@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>🚀 Generador de Libros Infantiles V2</h1>
-<p><strong>OpenAI configurada:</strong> {{ openai_configured }}</p>
+<h1>Generador de Libros Infantiles V2</h1>
+<p><strong>OpenAI configurada:</strong> {{ gemini_configured }}</p>
 <p><strong>Precio base:</strong> {{ base_price }}€</p>
 <p><strong>Libros creados:</strong> {{ stats.total_books }}</p>
 
@@ -34,20 +34,43 @@
         <input type="number" name="total_pages" min="4" max="20" value="6">
     </div>
     <br>
-    <button type="submit">🎨 Crear Preview Gratuito</button>
+    <button type="submit" id="submitBtn">Crear Preview Gratuito</button>
 </form>
 
-<div id="result" style="display: none;">
-    <h3>✅ Preview creado</h3>
-    <p>Tu libro se está procesando...</p>
-    <a id="previewLink" href="#" target="_blank">Ver Preview</a>
+<div id="loading" style="display: none; text-align: center; margin-top: 30px;">
+    <div class="spinner"></div>
+    <p>Creando tu preview...</p>
 </div>
+
+<style>
+.spinner {
+    border: 6px solid #f3f3f3;
+    border-top: 6px solid #007bff;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+</style>
 
 <script>
 document.getElementById('bookForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     
     const formData = new FormData(this);
+    const submitBtn = document.getElementById('submitBtn');
+    const loadingDiv = document.getElementById('loading');
+    
+    // Deshabilitar botón y mostrar loading
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Creando...';
+    loadingDiv.style.display = 'block';
     
     try {
         const response = await fetch('/api/books/create-preview', {
@@ -56,17 +79,21 @@ document.getElementById('bookForm').addEventListener('submit', async function(e)
         });
         
         const data = await response.json();
-        console.log(data);
         
         if (response.ok) {
-            document.getElementById('result').style.display = 'block';
-            document.getElementById('previewLink').href = '/preview/' + data.id;
-            alert('Preview creado! ID: ' + data.id);
+            // Redirigir directamente al preview
+            window.location.href = '/preview/' + data.id;
         } else {
             alert('Error: ' + data.detail);
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Crear Preview Gratuito';
+            loadingDiv.style.display = 'none';
         }
     } catch (err) {
         alert('Error de conexión: ' + err.message);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Crear Preview Gratuito';
+        loadingDiv.style.display = 'none';
         console.error(err);
     }
 });
