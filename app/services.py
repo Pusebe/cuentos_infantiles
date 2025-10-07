@@ -173,15 +173,14 @@ class GeminiImageService:
         print("🎨 Gemini Image Service configurado")
     
     async def generate_cover(self, story_data: Dict, reference_image_path: str) -> Optional[str]:
-        """Genera portada con Gemini y añade texto con PIL"""
+        """Genera portada con Gemini"""
         try:
             child_name = story_data.get('child_name', 'el niño')
             child_desc = story_data.get('child_description', 'un niño')
             tema = story_data.get('tema', 'aventura')
             titulo = story_data['titulo']
             
-            # Prompt SIN texto - solo ilustración
-            prompt = f"Diseña una portada profesional de libro infantil en formato cuadrado 1:1 con ilustración colorida estilo animación mostrando como personaje principal a {child_desc} en una escena de {tema}.
+            prompt = f"Portada profesional de libro infantil en formato cuadrado 1:1 con el título {titulo} y subtítulo Un cuento para {child_name} con ilustración colorida estilo animación mostrando como personaje principal a {child_desc} en una escena de {tema}. Deja el 25% inferior de la imagen con colores suaves sin elementos importantes para añadir texto después."
             
             print(f"📝 Generando portada con Gemini...")
             
@@ -195,34 +194,19 @@ class GeminiImageService:
                 [prompt, reference_image]
             )
             
-            # Extraer imagen
+            # Extraer y guardar imagen
             if response.candidates and response.candidates[0].content.parts:
                 for part in response.candidates[0].content.parts:
                     if hasattr(part, 'inline_data') and part.inline_data:
                         image_data = part.inline_data.data
+                        filename = f"cover_{secrets.token_urlsafe(8)}.png"
+                        file_path = settings.previews_dir / filename
                         
-                        # Guardar temporalmente
-                        temp_filename = f"temp_cover_{secrets.token_urlsafe(8)}.png"
-                        temp_path = settings.previews_dir / temp_filename
-                        
-                        async with aiofiles.open(temp_path, 'wb') as f:
+                        async with aiofiles.open(file_path, 'wb') as f:
                             await f.write(image_data)
                         
-                        # Añadir texto con PIL
-                        final_filename = await self._add_text_to_cover(
-                            str(temp_path),
-                            titulo,
-                            child_name
-                        )
-                        
-                        # Borrar temporal
-                        try:
-                            temp_path.unlink(missing_ok=True)
-                        except:
-                            pass
-                        
-                        print(f"✅ Portada generada con texto: {final_filename}")
-                        return final_filename
+                        print(f"✅ Portada generada: {filename}")
+                        return str(filename)
             
             print("❌ No se pudo extraer portada de Gemini")
             return None
@@ -230,67 +214,6 @@ class GeminiImageService:
         except Exception as e:
             print(f"❌ Error generando portada con Gemini: {e}")
             return None
-    
-    async def _add_text_to_cover(self, image_path: str, titulo: str, child_name: str) -> str:
-        """Añadir texto a la portada con PIL"""
-        try:
-            from PIL import Image as PILImage, ImageDraw, ImageFont
-            
-            # Abrir imagen
-            img = PILImage.open(image_path)
-            draw = ImageDraw.Draw(img)
-            width, height = img.size
-            
-            # Calcular zona de texto (25% inferior)
-            text_zone_height = int(height * 0.25)
-            text_zone_y = height - text_zone_height
-            
-            # Añadir fondo semi-transparente
-            overlay = PILImage.new('RGBA', img.size, (0, 0, 0, 0))
-            overlay_draw = ImageDraw.Draw(overlay)
-            overlay_draw.rectangle(
-                [(0, text_zone_y), (width, height)],
-                fill=(0, 0, 0, 128)  # Negro 50% transparente
-            )
-            img = PILImage.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
-            draw = ImageDraw.Draw(img)
-            
-            # Intentar usar fuente bold, si falla usar default
-            try:
-                title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
-                subtitle_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32)
-            except:
-                title_font = ImageFont.load_default()
-                subtitle_font = ImageFont.load_default()
-            
-            # Dibujar título
-            title_bbox = draw.textbbox((0, 0), titulo, font=title_font)
-            title_width = title_bbox[2] - title_bbox[0]
-            title_x = (width - title_width) // 2
-            title_y = text_zone_y + 20
-            
-            draw.text((title_x, title_y), titulo, fill='white', font=title_font)
-            
-            # Dibujar subtítulo
-            subtitle = f"Un libro para {child_name}"
-            subtitle_bbox = draw.textbbox((0, 0), subtitle, font=subtitle_font)
-            subtitle_width = subtitle_bbox[2] - subtitle_bbox[0]
-            subtitle_x = (width - subtitle_width) // 2
-            subtitle_y = title_y + 60
-            
-            draw.text((subtitle_x, subtitle_y), subtitle, fill='white', font=subtitle_font)
-            
-            # Guardar imagen final
-            final_filename = f"cover_{secrets.token_urlsafe(8)}.png"
-            final_path = settings.previews_dir / final_filename
-            img.save(final_path)
-            
-            return final_filename
-            
-        except Exception as e:
-            print(f"❌ Error añadiendo texto a portada: {e}")
-            # Si falla, devolver la imagen sin texto
-            return Path(image_path).name
     
     async def generate_page_image(self, prompt: str, reference_images: List[str]) -> Optional[str]:
         """
@@ -439,7 +362,7 @@ class BookGenerationService:
                 personajes_str = f"Personajes: {', '.join(personajes)}. " if personajes else ""
                 objetos_str = f"Objetos importantes: {', '.join(objetos)}. " if objetos else ""
                 
-                prompt = f"Ilustración cuadrada en formato 1:1 de cuento infantil mostrando: {page_data.get('escena', page_data['texto'])}. {personajes_str}{objetos_str}Estilo de ilustración colorida apropiada para niños. Deja el 25% inferior de la imagen con colores suaves sin elementos importantes para añadir texto después. SIN NINGÚN TEXTO en la imagen. Mantén consistencia con las imágenes de referencia."
+                prompt = f"Genera una ilustración de cuento infantil mostrando: {page_data.get('escena', page_data['texto'])}. {personajes_str}{objetos_str}Estilo de ilustración colorida apropiada para niños con el tercio inferior con tonos suaves ideal para añadir texto. SIN NINGÚN TEXTO en la imagen. Mantén consistencia con las imágenes de referencia."
                 
                 page_filename = await self.gemini_image.generate_page_image(
                     prompt,
