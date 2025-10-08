@@ -1,4 +1,5 @@
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import json
 import asyncio
 import aiofiles
@@ -19,8 +20,7 @@ class GeminiService:
         if not settings.gemini_api_key:
             raise ValueError("GEMINI_API_KEY no configurada")
         
-        genai.configure(api_key=settings.gemini_api_key)
-        self.model = genai.GenerativeModel(settings.gemini_model)
+        self.client = genai.Client(api_key=settings.gemini_api_key)
         print("🤖 Gemini configurado correctamente")
     
     async def generate_story_from_photo(self, photo_path: str, child_name: str, age: int, description: str, num_pages: int) -> Dict:
@@ -31,64 +31,70 @@ class GeminiService:
         # Cargar imagen
         img = Image.open(photo_path)
         
-        prompt = f"""
-        Analiza esta foto y crea un cuento infantil personalizado.
+        prompt = f"""Crea un cuento infantil personalizado basado en la foto.
 
-        INFORMACIÓN:
-        - Nombre del niño: {child_name}
-        - Edad: {age} años
-        - Descripción adicional: {description or 'Le gustan las aventuras'}
-        - Páginas del libro: {num_pages}
+INFORMACIÓN:
+- Nombre: {child_name}
+- Edad: {age} años
+- Intereses: {description or 'aventuras'}
+- Páginas: {num_pages}
 
-        ANÁLISIS DE LA FOTO:
-        1. Describe detalladamente la apariencia del niño (pelo, ojos, ropa, expresión)
-        2. Identifica elementos del fondo que puedan inspirar la historia
-        3. Nota el contexto y ambiente de la foto
+IMPORTANTE - LÍMITES ESTRICTOS:
+- Máximo 3 personajes (incluido {child_name})
+- Máximo 3 objetos importantes
+- Máximo 3 escenarios diferentes
 
-        REQUISITOS DE LA HISTORIA:
-        - Adaptada perfectamente para un niño de {age} años
-        - {child_name} como protagonista heroico
-        - {num_pages} páginas exactas
-        - Cada página: unas pocas (en funcion de la edad) frases cortas (ideales para ilustrar) 
-        - Historia emocionante que los padres quieran comprar
-        - Final feliz con lección positiva
-        - IMPORTANTE: Lista todos los personajes y objetos clave que aparecen en cada página para mantener consistencia visual
+HISTORIA:
+- {child_name} como protagonista
+- Apropiada para {age} años
+- {num_pages} páginas exactas con texto corto por página
+- Final feliz con lección positiva
 
-        RESPONDE EN FORMATO JSON EXACTO:
+JSON CON IDS ÚNICOS:
+{{
+    "titulo": "Título del libro",
+    "tema": "aventura/amistad/etc",
+    "resumen": "Resumen breve",
+    "leccion": "Qué aprenderá",
+    "personajes_principales": [
+        {{"id": "protagonista", "descripcion": "El niño de la foto como personaje principal"}},
+        {{"id": "id-descriptivo", "descripcion": "Descripción del personaje"}}
+    ],
+    "objetos_importantes": [
+        {{"id": "id-descriptivo", "descripcion": "Descripción del objeto"}}
+    ],
+    "escenarios": [
+        {{"id": "id-descriptivo", "descripcion": "Descripción del escenario"}}
+    ],
+    "paginas": [
         {{
-            "child_description": "Descripción física detallada del niño de la foto",
-            "scene_context": "Descripción del fondo y ambiente de la foto",
-            "titulo": "Título atractivo del libro",
-            "tema": "Tema principal (aventura, amistad, etc)",
-            "resumen": "Resumen de 1 frase",
-            "leccion": "Qué aprenderá el niño",
-            "paginas": [
-                {{
-                    "numero": 1, 
-                    "texto": "Texto de la página 1", 
-                    "escena": "Descripción de qué ilustrar",
-                    "personajes_presentes": ["nombre (descripción física breve)"],
-                    "objetos_clave": ["objeto importante con detalles"]
-                }},
-                ... hasta {num_pages} páginas
-            ]
+            "numero": 1,
+            "texto": "Texto corto",
+            "escena": "Qué ilustrar",
+            "personajes_ids": ["protagonista"],
+            "objetos_ids": ["id-objeto"],
+            "escenario_id": "id-escenario"
         }}
-        """
+    ]
+}}
+
+Los IDs deben ser descriptivos (ej: "amigo-robot-azul", "varita-magica", "bosque-encantado")."""
         
         try:
             response = await asyncio.to_thread(
-                self.model.generate_content,
-                [prompt, img]
+                self.client.models.generate_content,
+                model=settings.gemini_model,
+                contents=[prompt, img]
             )
             
             # Parsear JSON
             story_data = self._parse_gemini_response(response.text, child_name, num_pages)
             
-            print(f"📖 Historia generada con Gemini: '{story_data['titulo']}'")
+            print(f"📖 Historia generada: '{story_data['titulo']}'")
             return story_data
             
         except Exception as e:
-            print(f"❌ Error generando historia con Gemini: {e}")
+            print(f"❌ Error generando historia: {e}")
             return self._fallback_story(child_name, age, num_pages)
     
     def _parse_gemini_response(self, response_text: str, child_name: str, num_pages: int) -> Dict:
@@ -106,13 +112,32 @@ class GeminiService:
             data = json.loads(clean_text.strip())
             
             # Validar estructura
-            required_keys = ['child_description', 'titulo', 'paginas']
+            required_keys = ['titulo', 'paginas']
             for key in required_keys:
                 if key not in data:
                     raise ValueError(f"Falta clave: {key}")
             
-            # Añadir child_name al story_data
+            # Añadir child_name
             data['child_name'] = child_name
+            
+            # Asegurar estructura con IDs
+            if 'personajes_principales' not in data:
+                data['personajes_principales'] = [
+                    {"id": "protagonista", "descripcion": f"{child_name}, el protagonista"}
+                ]
+            
+            if 'objetos_importantes' not in data:
+                data['objetos_importantes'] = []
+            
+            if 'escenarios' not in data:
+                data['escenarios'] = [
+                    {"id": "escenario-principal", "descripcion": "Escenario de aventuras"}
+                ]
+            
+            # Limitar a máximo 3 de cada
+            data['personajes_principales'] = data['personajes_principales'][:3]
+            data['objetos_importantes'] = data['objetos_importantes'][:3]
+            data['escenarios'] = data['escenarios'][:3]
             
             # Ajustar páginas si es necesario
             if len(data['paginas']) != num_pages:
@@ -125,8 +150,9 @@ class GeminiService:
                             "numero": len(data['paginas']) + 1,
                             "texto": f"{child_name} continuó su aventura.",
                             "escena": "El niño en una escena de aventura",
-                            "personajes_presentes": [f"{child_name}"],
-                            "objetos_clave": []
+                            "personajes_ids": ["protagonista"],
+                            "objetos_ids": [],
+                            "escenario_id": data['escenarios'][0]['id'] if data['escenarios'] else "escenario-principal"
                         })
             
             return data
@@ -143,160 +169,384 @@ class GeminiService:
                 "numero": i,
                 "texto": f"{child_name} vivió una gran aventura.",
                 "escena": f"{child_name} en una escena emocionante",
-                "personajes_presentes": [f"{child_name}"],
-                "objetos_clave": []
+                "personajes_ids": ["protagonista"],
+                "objetos_ids": [],
+                "escenario_id": "bosque-magico"
             })
         
         return {
             "child_name": child_name,
-            "child_description": f"Niño de {age} años llamado {child_name}",
-            "scene_context": "Ambiente de aventura",
             "titulo": f"Las Aventuras de {child_name}",
             "tema": "Aventura",
             "resumen": f"Una historia sobre {child_name}",
             "leccion": "Valentía y amistad",
+            "personajes_principales": [
+                {"id": "protagonista", "descripcion": f"{child_name}, el protagonista"}
+            ],
+            "objetos_importantes": [],
+            "escenarios": [
+                {"id": "bosque-magico", "descripcion": "Un bosque mágico lleno de aventuras"}
+            ],
             "paginas": pages
         }
 
 
 class GeminiImageService:
-    """Servicio para Gemini 2.5 Flash Image - Generación de imágenes (portadas y páginas)"""
+    """Servicio para Gemini 2.5 Flash Image - Generación de imágenes"""
     
     def __init__(self):
         if not settings.gemini_api_key:
             raise ValueError("GEMINI_API_KEY no configurada")
         
-        genai.configure(api_key=settings.gemini_api_key)
-        self.model = genai.GenerativeModel('gemini-2.5-flash-image-preview')
+        self.client = genai.Client(api_key=settings.gemini_api_key)
         self.last_request = 0
-        self.min_delay = 1  # Rate limiting
+        self.min_delay = 1
         print("🎨 Gemini Image Service configurado")
     
-    async def generate_cover(self, story_data: Dict, reference_image_path: str) -> Optional[str]:
-        """Genera portada con Gemini"""
+    async def generate_character_sheet(self, story_data: Dict, reference_image_path: str, book_id: str, child_name: str) -> Optional[str]:
+        """Genera sheet de personajes y objetos importantes"""
         try:
-            child_name = story_data.get('child_name', 'el niño')
-            child_desc = story_data.get('child_description', 'un niño')
-            tema = story_data.get('tema', 'aventura')
-            titulo = story_data['titulo']
+            personajes = story_data.get('personajes_principales', [])
+            objetos = story_data.get('objetos_importantes', [])
             
-            prompt = f"Portada profesional de libro infantil en formato cuadrado 1:1 con el título {titulo} y subtítulo Un cuento para {child_name} con ilustración colorida estilo animación mostrando como personaje principal a {child_desc} en una escena de {tema}. Deja el 25% inferior de la imagen con colores suaves sin elementos importantes para añadir texto después."
+            # Construir lista detallada SIN IDs (solo descripciones)
+            personajes_str = "\n".join([f"- {p['descripcion']}" for p in personajes])
+            objetos_str = "\n".join([f"- {o['descripcion']}" for o in objetos]) if objetos else ""
             
-            print(f"📝 Generando portada con Gemini...")
+            prompt = f"""Crea un MODEL SHEET / CHARACTER REFERENCE SHEET profesional para un libro infantil.
+
+PERSONAJES (cada uno en pose neutral, claramente separado):
+{personajes_str}
+
+{f"OBJETOS IMPORTANTES (cada uno claramente visible y separado):\n{objetos_str}" if objetos_str else ""}
+
+FORMATO:
+- Fondo blanco limpio
+- Cada elemento bien separado visualmente
+- Estilo de ilustración infantil colorida y consistente
+- Vista clara de cada personaje/objeto
+- SIN texto, nombres ni etiquetas
+- Como un "character design sheet" profesional
+
+IMPORTANTE: El protagonista debe basarse fielmente en la foto de referencia."""
+
+            print(f"🎨 Generando character sheet...")
             
-            # Usar foto como referencia
             reference_image = Image.open(reference_image_path)
             
             await self._respect_rate_limit()
             
             response = await asyncio.to_thread(
-                self.model.generate_content,
-                [prompt, reference_image]
+                self.client.models.generate_content,
+                model='gemini-2.5-flash-image',
+                contents=[prompt, reference_image],
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                    image_config=types.ImageConfig(
+                        aspect_ratio="16:9"
+                    )
+                )
             )
             
-            # Extraer y guardar imagen
-            if response.candidates and response.candidates[0].content.parts:
-                for part in response.candidates[0].content.parts:
-                    if hasattr(part, 'inline_data') and part.inline_data:
-                        image_data = part.inline_data.data
-                        filename = f"cover_{secrets.token_urlsafe(8)}.png"
-                        file_path = settings.previews_dir / filename
-                        
-                        async with aiofiles.open(file_path, 'wb') as f:
-                            await f.write(image_data)
-                        
-                        print(f"✅ Portada generada: {filename}")
-                        return str(filename)
+            # Validar y extraer
+            if not response or not response.parts:
+                print("❌ Respuesta vacía de Gemini")
+                return None
             
-            print("❌ No se pudo extraer portada de Gemini")
+            for part in response.parts:
+                if part.inline_data is not None:
+                    image_data = part.inline_data.data
+                    
+                    filename = f"{child_name}_{book_id[:8]}_characters.png"
+                    file_path = settings.assets_dir / filename
+                    
+                    async with aiofiles.open(file_path, 'wb') as f:
+                        await f.write(image_data)
+                    
+                    print(f"✅ Character sheet generado: {filename}")
+                    return filename
+            
+            print("❌ No se pudo extraer character sheet")
             return None
             
         except Exception as e:
-            print(f"❌ Error generando portada con Gemini: {e}")
+            print(f"❌ Error generando character sheet: {e}")
             return None
     
-    async def generate_page_image(self, prompt: str, reference_images: List[str]) -> Optional[str]:
-        """
-        Genera imagen con Gemini usando múltiples imágenes de referencia (collage)
-        """
+    async def generate_scene_sheet(self, story_data: Dict, book_id: str, child_name: str) -> Optional[str]:
+        """Genera sheet de escenarios/fondos"""
+        try:
+            escenarios = story_data.get('escenarios', [])
+            
+            escenarios_str = "\n".join([f"- ID: {e['id']} → {e['descripcion']}" for e in escenarios])
+            
+            prompt = f"""Crea un SCENE REFERENCE SHEET / BACKGROUND REFERENCE para un libro infantil.
+
+ESCENARIOS (cada uno en un panel separado):
+{escenarios_str}
+
+FORMATO:
+- Cada escenario en un panel claramente dividido
+- Estilo de ilustración infantil colorida y consistente
+- Vista clara de cada entorno
+- Como un "location design sheet" profesional
+- Fondos/ambientes sin personajes"""
+
+            print(f"🎨 Generando scene sheet...")
+            
+            await self._respect_rate_limit()
+            
+            response = await asyncio.to_thread(
+                self.client.models.generate_content,
+                model='gemini-2.5-flash-image',
+                contents=[prompt],
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                    image_config=types.ImageConfig(
+                        aspect_ratio="16:9"
+                    )
+                )
+            )
+            
+            # Validar y extraer
+            if not response or not response.parts:
+                print("❌ Respuesta vacía de Gemini")
+                return None
+            
+            for part in response.parts:
+                if part.inline_data is not None:
+                    image_data = part.inline_data.data
+                    
+                    filename = f"{child_name}_{book_id[:8]}_scenes.png"
+                    file_path = settings.assets_dir / filename
+                    
+                    async with aiofiles.open(file_path, 'wb') as f:
+                        await f.write(image_data)
+                    
+                    print(f"✅ Scene sheet generado: {filename}")
+                    return filename
+            
+            print("❌ No se pudo extraer scene sheet")
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error generando scene sheet: {e}")
+            return None
+    
+    async def generate_cover(self, story_data: Dict, character_sheet_path: str, scene_sheet_path: str) -> Optional[str]:
+        """Genera portada usando los sheets como referencia"""
+        try:
+            child_name = story_data.get('child_name', 'el niño')
+            tema = story_data.get('tema', 'aventura')
+            titulo = story_data['titulo']
+            
+            prompt = f"""Crea una portada de libro infantil profesional.
+
+REFERENCIAS:
+- Primera imagen: personajes y objetos
+- Segunda imagen: escenarios
+
+PORTADA:
+- Título: "{titulo}"
+- Tema: {tema}
+- Usa el protagonista (ID: protagonista) de la primera imagen en primer plano
+- Usa un escenario de la segunda imagen como fondo
+- Estilo ilustración infantil colorida
+- Composición atractiva
+- Añade el título del libro.
+- No añadas ningun otro texto.
+
+IMPORTANTE: Mantén el estilo visual de las referencias."""
+
+            print(f"📝 Generando portada...")
+            
+            char_img = Image.open(character_sheet_path)
+            scene_img = Image.open(scene_sheet_path)
+            
+            await self._respect_rate_limit()
+            
+            response = await asyncio.to_thread(
+                self.client.models.generate_content,
+                model='gemini-2.5-flash-image',
+                contents=[prompt, char_img, scene_img],
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                    image_config=types.ImageConfig(
+                        aspect_ratio="1:1"
+                    )
+                )
+            )
+            
+            # Validar y extraer
+            if not response or not response.parts:
+                print("❌ Respuesta vacía de Gemini")
+                return None
+            
+            for part in response.parts:
+                if part.inline_data is not None:
+                    image_data = part.inline_data.data
+                    
+                    temp_filename = f"temp_cover_{secrets.token_urlsafe(8)}.png"
+                    temp_path = settings.previews_dir / temp_filename
+                    
+                    async with aiofiles.open(temp_path, 'wb') as f:
+                        await f.write(image_data)
+                    
+                    # Añadir texto con PIL
+                    final_filename = await self._add_text_to_cover(
+                        str(temp_path),
+                        child_name
+                    )
+                    
+                    # Borrar temporal
+                    try:
+                        temp_path.unlink(missing_ok=True)
+                    except:
+                        pass
+                    
+                    print(f"✅ Portada generada: {final_filename}")
+                    return final_filename
+            
+            print("❌ No se pudo extraer portada")
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error generando portada: {e}")
+            return None
+    
+    async def _add_text_to_cover(self, image_path: str, child_name: str) -> str:
+        """Añadir texto abajo a la derecha SIN zona sombreada"""
+        try:
+            from PIL import Image as PILImage, ImageDraw, ImageFont
+            
+            img = PILImage.open(image_path)
+            draw = ImageDraw.Draw(img)
+            width, height = img.size
+            
+            # Fuente infantil
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+            except:
+                font = ImageFont.load_default()
+            
+            # Texto
+            text = f"Un libro para: {child_name}"
+            
+            # Calcular posición (abajo derecha con margen)
+            text_bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+            
+            margin = 20
+            text_x = width - text_width - margin
+            text_y = height - text_height - margin
+            
+            # Dibujar texto en blanco
+            draw.text((text_x, text_y), text, fill='white', font=font)
+            
+            # Guardar
+            final_filename = f"cover_{secrets.token_urlsafe(8)}.png"
+            final_path = settings.previews_dir / final_filename
+            img.save(final_path)
+            
+            return final_filename
+            
+        except Exception as e:
+            print(f"❌ Error añadiendo texto: {e}")
+            return Path(image_path).name
+    
+    async def generate_page_image_with_retry(self, page_data: Dict, character_sheet_path: str, scene_sheet_path: str, max_retries: int = 3) -> Optional[str]:
+        """Genera imagen de página con sistema de retry"""
+        for attempt in range(1, max_retries + 1):
+            try:
+                print(f"  Intento {attempt}/{max_retries}...")
+                
+                result = await self.generate_page_image(page_data, character_sheet_path, scene_sheet_path)
+                
+                if result:
+                    return result
+                
+                if attempt < max_retries:
+                    print(f"  ⚠️ Reintentando en 2 segundos...")
+                    await asyncio.sleep(2)
+                    
+            except Exception as e:
+                print(f"  ❌ Intento {attempt} falló: {e}")
+                if attempt < max_retries:
+                    await asyncio.sleep(2)
+        
+        print(f"  ❌ Falló después de {max_retries} intentos")
+        return None
+    
+    async def generate_page_image(self, page_data: Dict, character_sheet_path: str, scene_sheet_path: str) -> Optional[str]:
+        """Genera imagen de página usando los sheets con IDs"""
         try:
             await self._respect_rate_limit()
             
-            # Crear collage de referencias si hay múltiples
-            if len(reference_images) > 1:
-                collage_path = await self._create_reference_collage(reference_images)
-                reference_image = Image.open(collage_path)
-            else:
-                reference_image = Image.open(reference_images[0])
+            escena = page_data.get('escena', page_data.get('texto', ''))
+            personajes_ids = page_data.get('personajes_ids', [])
+            objetos_ids = page_data.get('objetos_ids', [])
+            escenario_id = page_data.get('escenario_id', '')
             
-            # Generar imagen
+            personajes_str = f"Personajes (IDs): {', '.join(personajes_ids)}. " if personajes_ids else ""
+            objetos_str = f"Objetos (IDs): {', '.join(objetos_ids)}. " if objetos_ids else ""
+            escenario_str = f"Escenario (ID): {escenario_id}. " if escenario_id else ""
+            
+            prompt = f"""REFERENCIAS:
+- Primera imagen: personajes y objetos (usa los elementos con los IDs especificados)
+- Segunda imagen: escenarios (usa el escenario con el ID especificado)
+
+GENERA UNA ESCENA COMPLETAMENTE NUEVA:
+
+Escena: {escena}
+{personajes_str}{objetos_str}{escenario_str}
+
+IMPORTANTE:
+- Las imágenes son SOLO REFERENCIAS visuales de elementos existentes
+- NO edites ni combines las referencias
+- CREA una ilustración nueva usando los elementos con los IDs especificados
+- Mantén el estilo visual consistente
+- Estilo infantil colorido
+- Deja el 25% inferior con colores suaves (para texto después)
+- SIN texto en la imagen"""
+
+            char_img = Image.open(character_sheet_path)
+            scene_img = Image.open(scene_sheet_path)
+            
             response = await asyncio.to_thread(
-                self.model.generate_content,
-                [prompt, reference_image]
+                self.client.models.generate_content,
+                model='gemini-2.5-flash-image',
+                contents=[prompt, char_img, scene_img],
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                    image_config=types.ImageConfig(
+                        aspect_ratio="1:1"
+                    )
+                )
             )
             
-            # Extraer y guardar imagen
-            if response.candidates and response.candidates[0].content.parts:
-                for part in response.candidates[0].content.parts:
-                    if hasattr(part, 'inline_data') and part.inline_data:
-                        image_data = part.inline_data.data
-                        filename = f"gemini_page_{secrets.token_urlsafe(8)}.png"
-                        file_path = settings.books_dir / filename
-                        
-                        async with aiofiles.open(file_path, 'wb') as f:
-                            await f.write(image_data)
-                        
-                        return str(filename)
+            # Validar y extraer
+            if not response or not response.parts:
+                print("❌ Respuesta vacía de Gemini")
+                return None
             
-            print("❌ No se pudo extraer imagen de la respuesta de Gemini")
+            for part in response.parts:
+                if part.inline_data is not None:
+                    image_data = part.inline_data.data
+                    filename = f"page_{secrets.token_urlsafe(8)}.png"
+                    file_path = settings.books_dir / filename
+                    
+                    async with aiofiles.open(file_path, 'wb') as f:
+                        await f.write(image_data)
+                    
+                    return str(filename)
+            
+            print("❌ No se pudo extraer imagen")
             return None
             
         except Exception as e:
-            print(f"❌ Error generando imagen con Gemini: {e}")
+            print(f"❌ Error generando página: {e}")
             return None
-    
-    async def _create_reference_collage(self, image_paths: List[str]) -> str:
-        """Crear collage de imágenes de referencia"""
-        try:
-            from PIL import Image as PILImage
-            
-            # Limitar a máximo 4 referencias (2x2 grid)
-            paths = image_paths[:4]
-            images = [PILImage.open(p) for p in paths]
-            
-            # Redimensionar todas a mismo tamaño
-            size = 512
-            images = [img.resize((size, size), PILImage.Resampling.LANCZOS) for img in images]
-            
-            # Crear collage
-            if len(images) == 1:
-                collage = images[0]
-            elif len(images) == 2:
-                collage = PILImage.new('RGB', (size * 2, size))
-                collage.paste(images[0], (0, 0))
-                collage.paste(images[1], (size, 0))
-            elif len(images) == 3:
-                collage = PILImage.new('RGB', (size * 2, size * 2))
-                collage.paste(images[0], (0, 0))
-                collage.paste(images[1], (size, 0))
-                collage.paste(images[2], (0, size))
-            else:  # 4 imágenes
-                collage = PILImage.new('RGB', (size * 2, size * 2))
-                collage.paste(images[0], (0, 0))
-                collage.paste(images[1], (size, 0))
-                collage.paste(images[2], (0, size))
-                collage.paste(images[3], (size, size))
-            
-            # Guardar collage temporal
-            collage_path = settings.books_dir / f"collage_{secrets.token_urlsafe(8)}.png"
-            collage.save(collage_path)
-            
-            return str(collage_path)
-            
-        except Exception as e:
-            print(f"❌ Error creando collage: {e}")
-            # Fallback: devolver primera imagen
-            return image_paths[0]
     
     async def _respect_rate_limit(self):
         """Rate limiting"""
@@ -317,10 +567,107 @@ class BookGenerationService:
         self.gemini = GeminiService()
         self.gemini_image = GeminiImageService()
     
+    async def generate_preview_with_sheets(self, book_id: str):
+        """Generar preview: historia + sheets + portada CON RETRY"""
+        try:
+            db = SessionLocal()
+            book = db.query(Book).filter(Book.id == book_id).first()
+            if not book:
+                print(f"❌ Libro {book_id} no encontrado")
+                return
+            
+            # 1. Generar historia
+            print(f"🤖 Generando historia...")
+            story_data = await self.gemini.generate_story_from_photo(
+                photo_path=book.original_photo_path,
+                child_name=book.child_name,
+                age=book.child_age,
+                description=book.child_description or "",
+                num_pages=book.total_pages
+            )
+            
+            # 2. Generar character sheet CON RETRY
+            print(f"🎨 Generando character sheet...")
+            char_sheet = None
+            for attempt in range(1, 4):
+                print(f"  Intento {attempt}/3...")
+                char_sheet = await self.gemini_image.generate_character_sheet(
+                    story_data=story_data,
+                    reference_image_path=book.original_photo_path,
+                    book_id=book.id,
+                    child_name=book.child_name
+                )
+                if char_sheet:
+                    break
+                if attempt < 3:
+                    print(f"  ⚠️ Reintentando en 2 segundos...")
+                    await asyncio.sleep(2)
+            
+            if not char_sheet:
+                raise Exception("No se pudo generar character sheet después de 3 intentos")
+            
+            # 3. Generar scene sheet CON RETRY
+            print(f"🏞️ Generando scene sheet...")
+            scene_sheet = None
+            for attempt in range(1, 4):
+                print(f"  Intento {attempt}/3...")
+                scene_sheet = await self.gemini_image.generate_scene_sheet(
+                    story_data=story_data,
+                    book_id=book.id,
+                    child_name=book.child_name
+                )
+                if scene_sheet:
+                    break
+                if attempt < 3:
+                    print(f"  ⚠️ Reintentando en 2 segundos...")
+                    await asyncio.sleep(2)
+            
+            if not scene_sheet:
+                raise Exception("No se pudo generar scene sheet después de 3 intentos")
+            
+            # 4. Generar portada usando sheets CON RETRY
+            print(f"📕 Generando portada...")
+            cover_filename = None
+            for attempt in range(1, 4):
+                print(f"  Intento {attempt}/3...")
+                cover_filename = await self.gemini_image.generate_cover(
+                    story_data=story_data,
+                    character_sheet_path=str(settings.assets_dir / char_sheet),
+                    scene_sheet_path=str(settings.assets_dir / scene_sheet)
+                )
+                if cover_filename:
+                    break
+                if attempt < 3:
+                    print(f"  ⚠️ Reintentando en 2 segundos...")
+                    await asyncio.sleep(2)
+            
+            if not cover_filename:
+                raise Exception("No se pudo generar portada después de 3 intentos")
+            
+            # 5. Actualizar BD
+            book.title = story_data['titulo']
+            book.story_theme = story_data.get('tema', '')
+            book.book_data_json = json.dumps(story_data, ensure_ascii=False)
+            book.cover_preview_path = cover_filename
+            book.status = 'preview_ready'
+            
+            db.commit()
+            print(f"✅ Preview {book_id} completado con sheets")
+            
+        except Exception as e:
+            print(f"❌ Error generando preview {book_id}: {e}")
+            
+            if 'db' in locals() and 'book' in locals():
+                book.status = 'preview_error'
+                book.generation_error = str(e)
+                db.commit()
+        
+        finally:
+            if 'db' in locals():
+                db.close()
+    
     async def generate_complete_book(self, book_id: str):
-        """
-        Generar libro completo: reutilizar portada + páginas con Gemini + PDF
-        """
+        """Generar libro completo usando sheets existentes CON RETRY"""
         try:
             db = SessionLocal()
             book = db.query(Book).filter(Book.id == book_id).first()
@@ -335,61 +682,55 @@ class BookGenerationService:
             
             print(f"🎨 Generando libro completo para {book.child_name}...")
             
-            # 1. Verificar que existe la portada del preview
-            if not book.cover_preview_path:
-                print("❌ No hay portada de preview, generando con Gemini...")
-                cover_filename = await self.gemini_image.generate_cover(
-                    story_data,
-                    book.original_photo_path
-                )
-                if not cover_filename:
-                    raise Exception("No se pudo generar la portada")
-            else:
-                print(f"✅ Reutilizando portada existente: {book.cover_preview_path}")
-                cover_filename = book.cover_preview_path
+            # Localizar sheets
+            char_sheet = settings.assets_dir / f"{book.child_name}_{book_id[:8]}_characters.png"
+            scene_sheet = settings.assets_dir / f"{book.child_name}_{book_id[:8]}_scenes.png"
             
-            # 2. Generar páginas con Gemini usando collage de referencias
+            if not char_sheet.exists() or not scene_sheet.exists():
+                raise Exception("Sheets no encontrados")
+            
+            print(f"✅ Usando sheets existentes")
+            
+            # Generar páginas con RETRY
             page_filenames = []
-            reference_images = [str(settings.previews_dir / cover_filename)]  # Empezar con portada
+            failed_pages = []
             
             for i, page_data in enumerate(story_data['paginas'], 1):
-                print(f"🖼️ Generando página {i}/{len(story_data['paginas'])} con Gemini...")
+                print(f"🖼️ Generando página {i}/{len(story_data['paginas'])}...")
                 
-                # Construir prompt con personajes y objetos
-                personajes = page_data.get('personajes_presentes', [])
-                objetos = page_data.get('objetos_clave', [])
-                
-                personajes_str = f"Personajes: {', '.join(personajes)}. " if personajes else ""
-                objetos_str = f"Objetos importantes: {', '.join(objetos)}. " if objetos else ""
-                
-                prompt = f"Genera una ilustración de cuento infantil mostrando: {page_data.get('escena', page_data['texto'])}. {personajes_str}{objetos_str}Estilo de ilustración colorida apropiada para niños con el tercio inferior con tonos suaves ideal para añadir texto. SIN NINGÚN TEXTO en la imagen. Mantén consistencia con las imágenes de referencia."
-                
-                page_filename = await self.gemini_image.generate_page_image(
-                    prompt,
-                    reference_images[-3:]  # Últimas 3 referencias (portada + 2 páginas anteriores)
+                page_filename = await self.gemini_image.generate_page_image_with_retry(
+                    page_data=page_data,
+                    character_sheet_path=str(char_sheet),
+                    scene_sheet_path=str(scene_sheet),
+                    max_retries=3
                 )
                 
                 if not page_filename:
-                    print(f"⚠️ Falló página {i}, continuando...")
+                    print(f"❌ FALLO CRÍTICO: Página {i} falló después de 3 intentos")
+                    failed_pages.append(i)
                     page_filenames.append(None)
-                    continue
-                
-                page_filenames.append(page_filename)
-                
-                # Añadir página generada al pool de referencias
-                reference_images.append(str(settings.books_dir / page_filename))
+                else:
+                    page_filenames.append(page_filename)
             
-            # 3. Crear PDF
+            # Si alguna página falló, NO completar el libro
+            if failed_pages:
+                error_msg = f"Páginas fallidas: {', '.join(map(str, failed_pages))}"
+                raise Exception(error_msg)
+            
+            # Crear PDF
             print("📄 Creando PDF...")
-            pdf_filename = await self._create_pdf(book, story_data, cover_filename, page_filenames)
+            pdf_filename = await self._create_pdf(book, story_data, book.cover_preview_path, page_filenames)
             
-            # 4. Finalizar
+            if not pdf_filename:
+                raise Exception("No se pudo crear el PDF")
+            
+            # Finalizar
             book.status = 'completed'
             book.pdf_path = pdf_filename
             book.completed_at = func.now()
             db.commit()
             
-            print(f"🎉 Libro {book_id} completado")
+            print(f"🎉 Libro {book_id} completado exitosamente")
             
         except Exception as e:
             print(f"❌ Error generando libro {book_id}: {e}")
@@ -403,18 +744,17 @@ class BookGenerationService:
             db.close()
     
     async def _create_pdf(self, book: Book, story_data: Dict, cover_filename: Optional[str], page_filenames: List[Optional[str]]) -> Optional[str]:
-        """Crear PDF final con imágenes a página completa y texto superpuesto"""
+        """Crear PDF con imágenes a página completa y texto superpuesto"""
         try:
             from reportlab.lib.pagesizes import inch
             from reportlab.pdfgen import canvas
             from reportlab.lib.colors import Color
             
-            PAGE_SIZE = (8.5*inch, 8.5*inch)  # Cuadrado 8.5x8.5"
+            PAGE_SIZE = (8.5*inch, 8.5*inch)
             
             pdf_filename = f"libro_{book.child_name}_{book.id[:8]}.pdf"
             pdf_path = settings.pdfs_dir / pdf_filename
             
-            # Crear canvas para control total
             c = canvas.Canvas(str(pdf_path), pagesize=PAGE_SIZE)
             width, height = PAGE_SIZE
             
@@ -425,27 +765,25 @@ class BookGenerationService:
                     c.drawImage(str(cover_path), 0, 0, width=width, height=height, preserveAspectRatio=True, anchor='c')
                     c.showPage()
             
-            # Páginas con imagen completa + texto superpuesto
+            # Páginas con imagen + texto superpuesto CON zona sombreada
             for i, page_data in enumerate(story_data['paginas'], 1):
                 page_filename = page_filenames[i-1] if i-1 < len(page_filenames) else None
                 
                 if page_filename:
                     page_path = settings.books_dir / page_filename
                     if page_path.exists():
-                        # Imagen a página completa
                         c.drawImage(str(page_path), 0, 0, width=width, height=height, preserveAspectRatio=True, anchor='c')
                 
-                # Área de texto con fondo semi-transparente
+                # Zona de texto con fondo semi-transparente
                 text_height = 2*inch
-                c.setFillColor(Color(0, 0, 0, alpha=0.5))  # Negro 50% transparente
+                c.setFillColor(Color(0, 0, 0, alpha=0.5))
                 c.rect(0, 0, width, text_height, fill=1, stroke=0)
                 
                 # Texto en blanco
-                c.setFillColor(Color(1, 1, 1, alpha=1))  # Blanco
+                c.setFillColor(Color(1, 1, 1, alpha=1))
                 c.setFont("Helvetica-Bold", 18)
                 
                 texto = page_data['texto']
-                # Word wrap simple
                 max_width = width - inch
                 lines = []
                 words = texto.split()
@@ -463,12 +801,11 @@ class BookGenerationService:
                 if current_line:
                     lines.append(current_line)
                 
-                # Dibujar líneas alineadas a la izquierda
                 y_start = text_height - 0.5*inch
-                x_left = 0.5*inch  # Margen izquierdo
+                x_left = 0.5*inch
                 for line in lines:
                     c.drawString(x_left, y_start, line)
-                    y_start -= 24  # Espaciado entre líneas
+                    y_start -= 24
                 
                 c.showPage()
             

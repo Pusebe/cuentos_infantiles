@@ -15,6 +15,7 @@ pip-delete-this-directory.txt
 htmlcov/
 .DS_Store
 storage/uploads/*
+storage/assets/*
 storage/books/*
 storage/previews/*
 storage/pdfs/*

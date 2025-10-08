@@ -61,7 +61,7 @@ async def create_book_preview(
     db: Session = Depends(get_db)
 ):
     """
-    Crear preview usando solo Gemini (historia + portada)
+    Crear preview: historia + sheets + portada
     """
     # Rate limiting
     client_ip = get_client_ip(request)
@@ -100,8 +100,9 @@ async def create_book_preview(
         # Registrar acción
         record_action(db, client_ip, "free_preview")
         
-        # Generar en background
-        background_tasks.add_task(generate_preview_with_gemini, book.id)
+        # Generar en background con nuevo sistema de sheets
+        service = get_book_service()
+        background_tasks.add_task(service.generate_preview_with_sheets, book.id)
         
         print(f"✅ Preview creado: {book.id}")
         return BookResponse.from_orm(book)
@@ -109,59 +110,6 @@ async def create_book_preview(
     except Exception as e:
         print(f"❌ Error creando preview: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-async def generate_preview_with_gemini(book_id: str):
-    """
-    Generar preview: Gemini para historia y portada
-    """
-    try:
-        db_session = SessionLocal()
-        book = db_session.query(Book).filter(Book.id == book_id).first()
-        
-        if not book:
-            print(f"❌ Libro {book_id} no encontrado")
-            return
-        
-        service = get_book_service()
-        
-        # 1. Gemini: Analizar foto + generar historia
-        print(f"🤖 Gemini generando historia para {book_id}...")
-        story_data = await service.gemini.generate_story_from_photo(
-            photo_path=book.original_photo_path,
-            child_name=book.child_name,
-            age=book.child_age,
-            description=book.child_description or "",
-            num_pages=book.total_pages
-        )
-        
-        # 2. Gemini Image: Generar portada preview
-        print(f"🎨 Gemini generando portada para {book_id}...")
-        cover_filename = await service.gemini_image.generate_cover(
-            story_data=story_data,
-            reference_image_path=book.original_photo_path
-        )
-        
-        # 3. Actualizar BD
-        book.title = story_data['titulo']
-        book.story_theme = story_data.get('tema', '')
-        book.book_data_json = json.dumps(story_data, ensure_ascii=False)
-        book.cover_preview_path = cover_filename
-        book.status = 'preview_ready'
-        
-        db_session.commit()
-        print(f"✅ Preview {book_id} completado")
-        
-    except Exception as e:
-        print(f"❌ Error generando preview {book_id}: {e}")
-        
-        if 'db_session' in locals() and 'book' in locals():
-            book.status = 'preview_error'
-            book.generation_error = str(e)
-            db_session.commit()
-    
-    finally:
-        if 'db_session' in locals():
-            db_session.close()
 
 @router.get("/{book_id}", response_model=BookResponse)
 async def get_book(book_id: str, db: Session = Depends(get_db)):
@@ -179,7 +127,7 @@ async def generate_complete_book(
     db: Session = Depends(get_db)
 ):
     """
-    Generar libro completo (después del pago)
+    Generar libro completo (después del pago) usando sheets
     """
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
@@ -254,6 +202,15 @@ async def delete_book(book_id: str, db: Session = Depends(get_db)):
             (settings.previews_dir / book.cover_preview_path).unlink(missing_ok=True)
         except:
             pass
+    
+    # Eliminar sheets si existen
+    try:
+        char_sheet = settings.assets_dir / f"{book.child_name}_{book.id[:8]}_characters.png"
+        scene_sheet = settings.assets_dir / f"{book.child_name}_{book.id[:8]}_scenes.png"
+        char_sheet.unlink(missing_ok=True)
+        scene_sheet.unlink(missing_ok=True)
+    except:
+        pass
     
     # Eliminar de BD
     db.delete(book)

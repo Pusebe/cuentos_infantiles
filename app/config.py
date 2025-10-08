@@ -15,12 +15,12 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
     
-    # Ideogram - Para generación de imágenes
+    # Ideogram - Para generación de imágenes (NO SE USA, ahora usamos Gemini Image)
     ideogram_api_key: str = ""
-    ideogram_model_cover: str = "V_3_TURBO"  # Portada con character reference
-    ideogram_model_pages: str = "V_3_TURBO"  # Páginas con character reference
-    ideogram_magic_prompt_cover: bool = True  # ON para portadas
-    ideogram_magic_prompt_pages: bool = True  # ON para páginas
+    ideogram_model_cover: str = "V_3_TURBO"
+    ideogram_model_pages: str = "V_3_TURBO"
+    ideogram_magic_prompt_cover: bool = True
+    ideogram_magic_prompt_pages: bool = True
     ideogram_aspect_ratio: str = "1x1"
     ideogram_resolution: str = "1024x1024"
     
@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     base_dir: Path = Path(__file__).parent.parent
     storage_dir: Path = base_dir / "storage"
     uploads_dir: Path = storage_dir / "uploads"
+    assets_dir: Path = storage_dir / "assets"  # Character/Scene sheets
     books_dir: Path = storage_dir / "books"
     previews_dir: Path = storage_dir / "previews"
     pdfs_dir: Path = storage_dir / "pdfs"
@@ -63,6 +64,7 @@ def setup_directories(settings: Settings):
     directories = [
         settings.storage_dir,
         settings.uploads_dir,
+        settings.assets_dir,  # NUEVO
         settings.books_dir,
         settings.previews_dir,
         settings.pdfs_dir,
