@@ -1,119 +1,262 @@
 {% extends "base.html" %}
+
+{% block title %}Libro - {{ book.child_name }}{% endblock %}
+
 {% block content %}
+<script src="https://cdn.tailwindcss.com"></script>
 
-<div id="loading" style="display: none; text-align: center; padding: 40px;">
-    <div class="spinner"></div>
-    <h2 id="loading-message">Generando tu libro completo...</h2>
-    <p id="loading-detail" style="color: #666; margin-top: 10px;"></p>
-    <div id="progress-bar" style="width: 80%; max-width: 400px; height: 30px; background: #f0f0f0; border-radius: 15px; margin: 20px auto; overflow: hidden;">
-        <div id="progress-fill" style="height: 100%; background: linear-gradient(90deg, #007bff, #0056b3); width: 0%; transition: width 0.3s;"></div>
-    </div>
-    <p id="progress-text" style="font-weight: bold;">0%</p>
-</div>
-
-<div id="content" style="display: none;">
-    <h1>{{ story_data.titulo or "Libro de " + book.child_name }}</h1>
-    <p><strong>Estado:</strong> <span id="status">{{ book.status }}</span></p>
-    
-    <div style="margin: 20px 0;">
-        <p><strong>Para:</strong> {{ book.child_name }} ({{ book.child_age }} años)</p>
-        <p><strong>Páginas:</strong> {{ book.total_pages }}</p>
+<div class="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 min-h-screen py-8">
+    <div class="container mx-auto px-4 max-w-5xl">
         
-        <div id="pdf-download" style="display: none; margin-top: 30px; padding: 20px; background: #d4edda; border-radius: 10px;">
-            <h2 style="color: #155724;">¡Tu libro está listo!</h2>
-            <a id="pdf-link" href="#" download style="display: inline-block; padding: 15px 30px; background: #28a745; color: white; text-decoration: none; border-radius: 5px; font-size: 18px; margin-top: 10px;">
-                📥 Descargar PDF
-            </a>
+        <!-- Loading State -->
+        <div id="loading" class="bg-white rounded-2xl shadow-xl p-12 text-center">
+            <div class="flex justify-center mb-6">
+                <div class="animate-spin rounded-full h-24 w-24 border-b-4 border-green-600"></div>
+            </div>
+            <h2 class="text-3xl font-bold text-gray-800 mb-4">🎨 Generando tu libro completo...</h2>
+            <p id="loadingStep" class="text-xl text-gray-600 mb-6">Preparando...</p>
+            
+            <!-- Progress Bar -->
+            <div class="max-w-md mx-auto mb-6">
+                <div class="bg-gray-200 rounded-full h-6 overflow-hidden">
+                    <div id="progressBar" class="bg-gradient-to-r from-green-500 to-emerald-600 h-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <p id="progressText" class="text-lg font-semibold text-gray-700 mt-2">0%</p>
+            </div>
+
+            <div class="text-gray-600">
+                <p class="mb-2">⏱️ Tiempo estimado: <span class="font-semibold">5-8 minutos</span></p>
+                <p class="text-sm text-gray-500">Estamos creando 12 ilustraciones únicas para tu libro</p>
+            </div>
+        </div>
+
+        <!-- Content (hidden initially) -->
+        <div id="content" class="hidden">
+            
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <h1 class="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-emerald-600 mb-2">
+                    {{ story_data.titulo or "Libro de " + book.child_name }}
+                </h1>
+                <p class="text-gray-600">Para: <span class="font-semibold">{{ book.child_name }}</span> ({{ book.child_age }} años)</p>
+                <div class="inline-block mt-4 px-4 py-2 bg-blue-100 text-blue-800 rounded-full text-sm font-semibold">
+                    Estado: <span id="statusBadge">{{ book.status }}</span>
+                </div>
+            </div>
+
+            <!-- Download Section (shown when completed) -->
+            <div id="downloadSection" class="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl p-8 mb-8 hidden">
+                <div class="text-center">
+                    <div class="text-6xl mb-4">🎉</div>
+                    <h2 class="text-3xl font-bold text-green-800 mb-2">¡Tu libro está listo!</h2>
+                    <p class="text-gray-700 mb-6">Ya puedes descargar tu libro personalizado en PDF</p>
+                    
+                    <a 
+                        id="pdfLink" 
+                        href="#" 
+                        download 
+                        class="inline-block bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-4 px-8 rounded-lg transition shadow-lg transform hover:scale-105 duration-200 text-lg"
+                    >
+                        📥 Descargar PDF
+                    </a>
+
+                    <p class="text-sm text-gray-600 mt-4">
+                        Incluye 14 páginas: portada + 12 ilustradas + contraportada
+                    </p>
+                </div>
+            </div>
+
+            <!-- Book Details -->
+            <div class="bg-white rounded-2xl shadow-xl p-8 mb-8">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">📖 Detalles del Libro</h2>
+                
+                <div class="grid md:grid-cols-2 gap-6">
+                    <div>
+                        <p class="text-sm text-gray-500">Nombre</p>
+                        <p class="text-lg font-semibold text-gray-800">{{ book.child_name }}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-500">Edad</p>
+                        <p class="text-lg font-semibold text-gray-800">{{ book.child_age }} años</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-500">Páginas ilustradas</p>
+                        <p class="text-lg font-semibold text-gray-800">12 páginas</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-500">Precio pagado</p>
+                        <p class="text-lg font-semibold text-gray-800">{{ book.total_price_euros }}€</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Regeneration Request Section (only when completed) -->
+            <div id="regenerationSection" class="bg-white rounded-2xl shadow-xl p-8 hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">🔄 ¿No te gusta alguna página?</h2>
+                <p class="text-gray-600 mb-6">Puedes solicitar regenerar una página específica. Revisaremos tu petición y la procesaremos.</p>
+                
+                <form id="regenerationForm" class="space-y-4">
+                    <div>
+                        <label class="block text-gray-700 font-semibold mb-2">
+                            Número de página (1-12)
+                        </label>
+                        <input 
+                            type="number" 
+                            id="pageNumber" 
+                            min="1" 
+                            max="12" 
+                            required
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none transition"
+                            placeholder="Ej: 5"
+                        >
+                    </div>
+                    
+                    <div>
+                        <label class="block text-gray-700 font-semibold mb-2">
+                            Razón (opcional)
+                        </label>
+                        <textarea 
+                            id="reason" 
+                            rows="3"
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none transition resize-none"
+                            placeholder="Ej: La ilustración no coincide con la historia..."
+                        ></textarea>
+                    </div>
+                    
+                    <button 
+                        type="submit"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition shadow"
+                    >
+                        📤 Enviar Solicitud
+                    </button>
+                </form>
+
+                <div id="regenerationSuccess" class="hidden mt-6 bg-green-50 border-2 border-green-200 rounded-lg p-4">
+                    <p class="text-green-800 font-semibold">✅ Solicitud enviada correctamente</p>
+                    <p class="text-green-700 text-sm">Tu solicitud será revisada pronto.</p>
+                </div>
+            </div>
+
+            <!-- Error Message -->
+            <div id="errorMessage" class="hidden bg-red-50 border-2 border-red-200 rounded-xl p-6">
+                <h3 class="text-red-800 font-bold mb-2">❌ Error</h3>
+                <p id="errorText" class="text-red-700"></p>
+            </div>
+
         </div>
     </div>
-    
-    <div id="error-message" style="display: none; padding: 15px; background: #f8d7da; color: #721c24; border-radius: 5px; margin-top: 20px;"></div>
-</div>
 
-<style>
-.spinner {
-    border: 8px solid #f3f3f3;
-    border-top: 8px solid #28a745;
-    border-radius: 50%;
-    width: 80px;
-    height: 80px;
-    animation: spin 1s linear infinite;
-    margin: 0 auto 20px;
-}
+    <script>
+        const bookId = '{{ book.id }}';
+        const initialStatus = '{{ book.status }}';
+        const totalPages = {{ book.total_pages }};
+        let pollingInterval = null;
 
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-</style>
-
-<script>
-const bookId = '{{ book.id }}';
-const initialStatus = '{{ book.status }}';
-const totalPages = {{ book.total_pages }};
-let currentPage = 0;
-
-async function checkStatus() {
-    try {
-        const response = await fetch(`/api/books/${bookId}/status`);
-        const data = await response.json();
-        
-        document.getElementById('status').textContent = data.status;
-        
-        if (data.status === 'paid' || data.status === 'generating') {
-            document.getElementById('loading').style.display = 'block';
-            document.getElementById('content').style.display = 'none';
-            
-            // Simular progreso (en realidad necesitarías que el backend te diga la página actual)
-            currentPage = Math.min(currentPage + 1, totalPages);
-            const progress = (currentPage / (totalPages + 2)) * 100; // +2 por portada y PDF
-            
-            document.getElementById('progress-fill').style.width = progress + '%';
-            document.getElementById('progress-text').textContent = Math.round(progress) + '%';
-            
-            if (currentPage === 0) {
-                document.getElementById('loading-detail').textContent = 'Preparando el libro...';
-            } else if (currentPage <= totalPages) {
-                document.getElementById('loading-detail').textContent = `Generando página ${currentPage}/${totalPages}...`;
-            } else {
-                document.getElementById('loading-detail').textContent = 'Creando PDF final...';
+        async function checkStatus() {
+            try {
+                const response = await fetch(`/api/books/${bookId}/status`);
+                const data = await response.json();
+                
+                document.getElementById('statusBadge').textContent = data.status;
+                
+                // Update progress
+                if (data.current_step) {
+                    document.getElementById('loadingStep').textContent = data.current_step;
+                }
+                
+                if (data.progress_percentage !== undefined) {
+                    const progress = Math.round(data.progress_percentage);
+                    document.getElementById('progressBar').style.width = progress + '%';
+                    document.getElementById('progressText').textContent = progress + '%';
+                }
+                
+                if (data.status === 'paid' || data.status === 'generating') {
+                    document.getElementById('loading').classList.remove('hidden');
+                    document.getElementById('content').classList.add('hidden');
+                }
+                else if (data.status === 'completed') {
+                    clearInterval(pollingInterval);
+                    showCompleted(data);
+                }
+                else if (data.status === 'error') {
+                    clearInterval(pollingInterval);
+                    showError(data.error);
+                }
+                
+            } catch (error) {
+                console.error('Error checking status:', error);
             }
-            
-            setTimeout(checkStatus, 5000);
         }
-        else if (data.status === 'completed') {
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('content').style.display = 'block';
+
+        function showCompleted(data) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('content').classList.remove('hidden');
             
             if (data.pdf_url) {
-                document.getElementById('pdf-download').style.display = 'block';
-                document.getElementById('pdf-link').href = data.pdf_url;
+                document.getElementById('downloadSection').classList.remove('hidden');
+                document.getElementById('pdfLink').href = data.pdf_url;
             }
+            
+            document.getElementById('regenerationSection').classList.remove('hidden');
         }
-        else if (data.status === 'error') {
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('content').style.display = 'block';
-            document.getElementById('error-message').style.display = 'block';
-            document.getElementById('error-message').textContent = 'Error generando libro: ' + (data.error || 'Error desconocido');
+
+        function showError(error) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('content').classList.remove('hidden');
+            document.getElementById('errorMessage').classList.remove('hidden');
+            document.getElementById('errorText').textContent = error || 'Error desconocido';
         }
-        
-    } catch (error) {
-        console.error('Error checking status:', error);
-        setTimeout(checkStatus, 5000);
-    }
-}
 
-// Iniciar polling si está generando
-if (initialStatus === 'paid' || initialStatus === 'generating') {
-    checkStatus();
-} else if (initialStatus === 'completed') {
-    document.getElementById('content').style.display = 'block';
-    const pdfUrl = '{{ pdf_url }}';
-    if (pdfUrl && pdfUrl !== 'None') {
-        document.getElementById('pdf-download').style.display = 'block';
-        document.getElementById('pdf-link').href = pdfUrl;
-    }
-}
-</script>
+        // Regeneration form
+        document.getElementById('regenerationForm')?.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const pageNumber = parseInt(document.getElementById('pageNumber').value);
+            const reason = document.getElementById('reason').value;
+            
+            if (pageNumber < 1 || pageNumber > totalPages) {
+                alert(`La página debe estar entre 1 y ${totalPages}`);
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/books/${bookId}/request-regeneration`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ page_number: pageNumber, reason: reason })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('regenerationSuccess').classList.remove('hidden');
+                    document.getElementById('regenerationForm').reset();
+                    
+                    setTimeout(() => {
+                        document.getElementById('regenerationSuccess').classList.add('hidden');
+                    }, 5000);
+                } else {
+                    alert('❌ ' + data.detail);
+                }
+            } catch (err) {
+                alert('❌ Error: ' + err.message);
+            }
+        });
 
+        // Initialize
+        if (initialStatus === 'paid' || initialStatus === 'generating') {
+            pollingInterval = setInterval(checkStatus, 3000);
+            checkStatus();
+        } else if (initialStatus === 'completed') {
+            document.getElementById('content').classList.remove('hidden');
+            const pdfUrl = '{{ pdf_url }}';
+            if (pdfUrl && pdfUrl !== 'None') {
+                document.getElementById('downloadSection').classList.remove('hidden');
+                document.getElementById('pdfLink').href = pdfUrl;
+            }
+            document.getElementById('regenerationSection').classList.remove('hidden');
+        }
+    </script>
+    </div>
+</div>
 {% endblock %}

@@ -1,125 +1,560 @@
 {% extends "base.html" %}
+
+{% block title %}Preview - {{ book.child_name }}{% endblock %}
+
 {% block content %}
+<script src="https://cdn.tailwindcss.com"></script>
 
-<div id="loading" style="display: none; text-align: center; padding: 40px;">
-    <div class="spinner"></div>
-    <h2 id="loading-message">Generando tu preview...</h2>
-    <p id="loading-detail" style="color: #666; margin-top: 10px;"></p>
-</div>
+<div class="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 min-h-screen py-8">
+    <div class="container mx-auto px-4 max-w-5xl">
+        
+        <!-- Loading State -->
+        <div id="loading" class="bg-white rounded-2xl shadow-xl p-12 text-center">
+            <div class="flex justify-center mb-6">
+                <div class="animate-spin rounded-full h-20 w-20 border-b-4 border-purple-600"></div>
+            </div>
+            <h2 id="loadingTitle" class="text-3xl font-bold text-gray-800 mb-4">Creando tu libro...</h2>
+            <p id="loadingStep" class="text-xl text-gray-600 mb-6">Preparando...</p>
+            
+            <!-- Progress Bar -->
+            <div class="max-w-md mx-auto">
+                <div class="bg-gray-200 rounded-full h-4 overflow-hidden">
+                    <div id="progressBar" class="bg-gradient-to-r from-blue-600 to-purple-600 h-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <p id="progressText" class="text-sm text-gray-500 mt-2">0%</p>
+            </div>
 
-<div id="content" style="display: none;">
-    <h1>Preview: {{ book.title or "Libro de " + book.child_name }}</h1>
-    <p><strong>Estado:</strong> <span id="status">{{ book.status }}</span></p>
-    
-    <div style="display: flex; gap: 30px; margin: 20px 0;">
-        <div style="flex: 1;">
-            <div id="cover-container">
-                {% if cover_url %}
-                    <img src="{{ cover_url }}" alt="Portada" style="max-width: 100%; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                {% endif %}
+            <div class="mt-8 space-y-2 text-left max-w-md mx-auto bg-gray-50 rounded-lg p-4">
+                <div id="step1" class="flex items-center text-gray-400">
+                    <span class="mr-2">⏳</span> Generando historia personalizada
+                </div>
+                <div id="step2" class="flex items-center text-gray-400">
+                    <span class="mr-2">⏳</span> Creando personajes únicos
+                </div>
+                <div id="step3" class="flex items-center text-gray-400">
+                    <span class="mr-2">⏳</span> Diseñando escenarios mágicos
+                </div>
+                <div id="step4" class="flex items-center text-gray-400">
+                    <span class="mr-2">⏳</span> Generando portada
+                </div>
             </div>
         </div>
-        
-        <div style="flex: 1;">
-            <h2>Detalles del libro</h2>
-            <p><strong>Para:</strong> {{ book.child_name }}</p>
-            <p><strong>Edad:</strong> {{ book.child_age }} años</p>
-            <p><strong>Páginas:</strong> {{ book.total_pages }}</p>
+
+        <!-- Content (hidden initially) -->
+        <div id="content" class="hidden">
             
-            <div id="story-info" style="display: none;">
-                <p><strong>Tema:</strong> <span id="story-theme"></span></p>
-                <p><strong>Resumen:</strong> <span id="story-summary"></span></p>
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <h1 class="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 mb-2">
+                    📖 Preview de tu Libro
+                </h1>
+                <p class="text-gray-600">Para: <span class="font-semibold">{{ book.child_name }}</span> ({{ book.child_age }} años)</p>
             </div>
-            
-            <hr>
-            
-            <h3>Precio</h3>
-            <p style="font-size: 24px; font-weight: bold; color: #007bff;">
-                {{ book.total_price_euros }}€
-            </p>
-            
-            <div id="buy-button-container" style="display: none; margin-top: 20px;">
-                <a href="/checkout/{{ book.id }}" style="display: inline-block; padding: 15px 30px; background: #28a745; color: white; text-decoration: none; border-radius: 5px; font-size: 18px;">
-                    Comprar libro completo
-                </a>
+
+            <!-- Main Content -->
+            <div class="grid md:grid-cols-2 gap-8 mb-8">
+                
+                <!-- Cover -->
+                <div class="bg-white rounded-2xl shadow-xl p-6">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4">✨ Portada</h2>
+                    <div id="coverContainer" class="bg-gray-100 rounded-lg overflow-hidden aspect-square flex items-center justify-center">
+                        {% if cover_url %}
+                            <img src="{{ cover_url }}" alt="Portada" class="w-full h-full object-cover">
+                        {% else %}
+                            <p class="text-gray-400">Cargando portada...</p>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Regenerate Button -->
+                    <div id="regenerateSection" class="mt-4">
+                        <button 
+                            id="regenerateBtn"
+                            class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-3 px-4 rounded-lg transition shadow"
+                        >
+                            🔄 No me gusta, generar otra portada
+                        </button>
+                        <p class="text-xs text-gray-500 mt-2 text-center">Puedes regenerar hasta 3 veces por día</p>
+                    </div>
+                </div>
+
+                <!-- Details -->
+                <div class="bg-white rounded-2xl shadow-xl p-6">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4">📚 Detalles</h2>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <p class="text-sm text-gray-500">Título</p>
+                            <p id="bookTitle" class="text-lg font-semibold text-gray-800">{{ story_data.titulo or 'Cargando...' }}</p>
+                        </div>
+                        
+                        <div>
+                            <p class="text-sm text-gray-500">Tema</p>
+                            <p id="bookTheme" class="text-lg font-semibold text-gray-800">{{ story_data.tema or 'Aventura' }}</p>
+                        </div>
+                        
+                        <div>
+                            <p class="text-sm text-gray-500">Páginas ilustradas</p>
+                            <p class="text-lg font-semibold text-gray-800">12 páginas</p>
+                        </div>
+                        
+                        <div id="storyPreview" class="hidden">
+                            <p class="text-sm text-gray-500">Resumen</p>
+                            <p class="text-gray-700">{{ story_data.resumen or '' }}</p>
+                        </div>
+                    </div>
+
+                    <hr class="my-6">
+
+                    <!-- Pricing -->
+                    <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6">
+                        <p class="text-sm text-gray-600 mb-2">Precio del libro completo</p>
+                        <p class="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 mb-4">
+                            {{ book.total_price_euros }}€
+                        </p>
+                        <ul class="text-sm text-gray-600 space-y-1 mb-6">
+                            <li>✅ 12 páginas ilustradas personalizadas</li>
+                            <li>✅ Historia única con IA</li>
+                            <li>✅ PDF de alta calidad</li>
+                            <li>✅ Listo para imprimir</li>
+                        </ul>
+                        
+                        <a 
+                            href="/checkout/{{ book.id }}" 
+                            id="buyButton"
+                            class="block w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-4 px-6 rounded-lg transition shadow-lg text-center transform hover:scale-105 duration-200"
+                        >
+                            💳 Comprar Libro Completo
+                        </a>
+                    </div>
+                </div>
             </div>
+
+            <!-- Error Message -->
+            <div id="errorMessage" class="hidden bg-red-50 border-2 border-red-200 rounded-xl p-6 mb-8">
+                <h3 class="text-red-800 font-bold mb-2">❌ Error</h3>
+                <p id="errorText" class="text-red-700"></p>
+            </div>
+
         </div>
     </div>
-    
-    <div id="error-message" style="display: none; padding: 15px; background: #f8d7da; color: #721c24; border-radius: 5px; margin-top: 20px;"></div>
 </div>
 
-<style>
-.spinner {
-    border: 8px solid #f3f3f3;
-    border-top: 8px solid #007bff;
-    border-radius: 50%;
-    width: 60px;
-    height: 60px;
-    animation: spin 1s linear infinite;
-    margin: 0 auto 20px;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-</style>
-
 <script>
-const bookId = '{{ book.id }}';
-const initialStatus = '{{ book.status }}';
+    const bookId = '{{ book.id }}';
+    const initialStatus = '{{ book.status }}';
+    let pollingInterval = null;
 
-async function checkStatus() {
-    try {
-        const response = await fetch(`/api/books/${bookId}/status`);
-        const data = await response.json();
-        
-        document.getElementById('status').textContent = data.status;
-        
-        if (data.status === 'preview') {
-            document.getElementById('loading').style.display = 'block';
-            document.getElementById('content').style.display = 'none';
-            document.getElementById('loading-message').textContent = 'Generando tu preview...';
-            document.getElementById('loading-detail').textContent = 'Esto puede tardar 30-60 segundos';
-            setTimeout(checkStatus, 3000);
-        } 
-        else if (data.status === 'preview_ready') {
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('content').style.display = 'block';
+    const steps = {
+        'preview': 'step1',
+        'generating_story': 'step1',
+        'generating_character_sheet': 'step2',
+        'generating_scene_sheet': 'step3',
+        'generating_cover': 'step4',
+        'preview_ready': 'complete'
+    };
+
+    async function checkStatus() {
+        try {
+            const response = await fetch(`/api/books/${bookId}/status`);
+            const data = await response.json();
             
-            if (data.cover_preview_url) {
-                document.getElementById('cover-container').innerHTML = 
-                    `<img src="${data.cover_preview_url}" alt="Portada" style="max-width: 100%; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">`;
+            // Update step visualization
+            updateStepProgress(data.current_step, data.progress_percentage);
+            
+            if (data.status === 'preview_ready') {
+                clearInterval(pollingInterval);
+                showContent(data);
+            } else if (data.status === 'preview_error') {
+                clearInterval(pollingInterval);
+                showError(data.error);
             }
             
-            if (data.story_preview) {
-                document.getElementById('story-info').style.display = 'block';
-                document.getElementById('story-summary').textContent = data.story_preview;
-            }
-            
-            document.getElementById('buy-button-container').style.display = 'block';
+        } catch (error) {
+            console.error('Error checking status:', error);
         }
-        else if (data.status === 'preview_error') {
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('content').style.display = 'block';
-            document.getElementById('error-message').style.display = 'block';
-            document.getElementById('error-message').textContent = 'Error generando preview: ' + (data.error || 'Error desconocido');
-        }
-        
-    } catch (error) {
-        console.error('Error checking status:', error);
-        setTimeout(checkStatus, 5000);
     }
-}
 
-// Iniciar polling si no está listo
-if (initialStatus === 'preview') {
-    checkStatus();
-} else if (initialStatus === 'preview_ready') {
-    document.getElementById('content').style.display = 'block';
-    document.getElementById('buy-button-container').style.display = 'block';
-}
+    function updateStepProgress(currentStep, progress) {
+        // Update progress bar
+        document.getElementById('progressBar').style.width = progress + '%';
+        document.getElementById('progressText').textContent = Math.round(progress) + '%';
+        
+        // Update step text
+        if (currentStep) {
+            document.getElementById('loadingStep').textContent = currentStep;
+        }
+        
+        // Update step checkmarks
+        const stepMapping = {
+            'Generando historia': 'step1',
+            'Creando character sheet': 'step2',
+            'Creando scene sheet': 'step3',
+            'Generando portada': 'step4'
+        };
+        
+        for (const [text, stepId] of Object.entries(stepMapping)) {
+            const el = document.getElementById(stepId);
+            if (currentStep && currentStep.includes(text.split(' ')[1])) {
+                el.className = 'flex items-center text-blue-600 font-semibold';
+                el.querySelector('span').textContent = '🔄';
+            } else if (progress > getStepProgress(stepId)) {
+                el.className = 'flex items-center text-green-600';
+                el.querySelector('span').textContent = '✅';
+            }
+        }
+    }
+
+    function getStepProgress(stepId) {
+        const progressMap = {
+            'step1': 25,
+            'step2': 50,
+            'step3': 75,
+            'step4': 90
+        };
+        return progressMap[stepId] || 0;
+    }
+
+    function showContent(data) {
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('content').classList.remove('hidden');
+        
+        // Update cover if available
+        if (data.cover_preview_url) {
+            document.getElementById('coverContainer').innerHTML = 
+                `<img src="${data.cover_preview_url}" alt="Portada" class="w-full h-full object-cover">`;
+        }
+        
+        // Update story info
+        if (data.story_preview) {
+            document.getElementById('storyPreview').classList.remove('hidden');
+        }
+    }
+
+    function showError(error) {
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('content').classList.remove('hidden');
+        document.getElementById('errorMessage').classList.remove('hidden');
+        document.getElementById('errorText').textContent = error || 'Error desconocido';
+        document.getElementById('buyButton').classList.add('hidden');
+    }
+
+    // Regenerate cover
+    document.getElementById('regenerateBtn')?.addEventListener('click', async function() {
+        if (!confirm('¿Quieres regenerar la portada? Esto puede tardar 1 minuto.')) return;
+        
+        this.disabled = true;
+        this.innerHTML = '⏳ Regenerando...';
+        
+        try {
+            const response = await fetch(`/api/books/${bookId}/regenerate-preview`, {
+                method: 'POST'
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                // Show loading and start polling
+                document.getElementById('content').classList.add('hidden');
+                document.getElementById('loading').classList.remove('hidden');
+                document.getElementById('loadingTitle').textContent = 'Regenerando portada...';
+                pollingInterval = setInterval(checkStatus, 2000);
+            } else {
+                alert('❌ ' + data.detail);
+                this.disabled = false;
+                this.innerHTML = '🔄 No me gusta, generar otra portada';
+            }
+        } catch (err) {
+            alert('❌ Error: ' + err.message);
+            this.disabled = false;
+            this.innerHTML = '🔄 No me gusta, generar otra portada';
+        }
+    });
+
+    // Initialize
+    if (initialStatus === 'preview' || initialStatus === 'generating_story' || 
+        initialStatus === 'generating_character_sheet' || initialStatus === 'generating_scene_sheet' ||
+        initialStatus === 'generating_cover') {
+        pollingInterval = setInterval(checkStatus, 2000);
+        checkStatus();
+    } else if (initialStatus === 'preview_ready') {
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('content').classList.remove('hidden');
+    }
 </script>
-
 {% endblock %}
+    <div class="container mx-auto px-4 max-w-5xl">
+        
+        <!-- Loading State -->
+        <div id="loading" class="bg-white rounded-2xl shadow-xl p-12 text-center">
+            <div class="flex justify-center mb-6">
+                <div class="animate-spin rounded-full h-20 w-20 border-b-4 border-purple-600"></div>
+            </div>
+            <h2 id="loadingTitle" class="text-3xl font-bold text-gray-800 mb-4">Creando tu libro...</h2>
+            <p id="loadingStep" class="text-xl text-gray-600 mb-6">Preparando...</p>
+            
+            <!-- Progress Bar -->
+            <div class="max-w-md mx-auto">
+                <div class="bg-gray-200 rounded-full h-4 overflow-hidden">
+                    <div id="progressBar" class="bg-gradient-to-r from-blue-600 to-purple-600 h-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <p id="progressText" class="text-sm text-gray-500 mt-2">0%</p>
+            </div>
+
+            <div class="mt-8 space-y-2 text-left max-w-md mx-auto bg-gray-50 rounded-lg p-4">
+                <div id="step1" class="flex items-center text-gray-400">
+                    <span class="mr-2">⏳</span> Generando historia personalizada
+                </div>
+                <div id="step2" class="flex items-center text-gray-400">
+                    <span class="mr-2">⏳</span> Creando personajes únicos
+                </div>
+                <div id="step3" class="flex items-center text-gray-400">
+                    <span class="mr-2">⏳</span> Diseñando escenarios mágicos
+                </div>
+                <div id="step4" class="flex items-center text-gray-400">
+                    <span class="mr-2">⏳</span> Generando portada
+                </div>
+            </div>
+        </div>
+
+        <!-- Content (hidden initially) -->
+        <div id="content" class="hidden">
+            
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <h1 class="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 mb-2">
+                    📖 Preview de tu Libro
+                </h1>
+                <p class="text-gray-600">Para: <span class="font-semibold">{{ book.child_name }}</span> ({{ book.child_age }} años)</p>
+            </div>
+
+            <!-- Main Content -->
+            <div class="grid md:grid-cols-2 gap-8 mb-8">
+                
+                <!-- Cover -->
+                <div class="bg-white rounded-2xl shadow-xl p-6">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4">✨ Portada</h2>
+                    <div id="coverContainer" class="bg-gray-100 rounded-lg overflow-hidden aspect-square flex items-center justify-center">
+                        {% if cover_url %}
+                            <img src="{{ cover_url }}" alt="Portada" class="w-full h-full object-cover">
+                        {% else %}
+                            <p class="text-gray-400">Cargando portada...</p>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Regenerate Button -->
+                    <div id="regenerateSection" class="mt-4">
+                        <button 
+                            id="regenerateBtn"
+                            class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-3 px-4 rounded-lg transition shadow"
+                        >
+                            🔄 No me gusta, generar otra portada
+                        </button>
+                        <p class="text-xs text-gray-500 mt-2 text-center">Puedes regenerar hasta 3 veces por día</p>
+                    </div>
+                </div>
+
+                <!-- Details -->
+                <div class="bg-white rounded-2xl shadow-xl p-6">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4">📚 Detalles</h2>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <p class="text-sm text-gray-500">Título</p>
+                            <p id="bookTitle" class="text-lg font-semibold text-gray-800">{{ story_data.titulo or 'Cargando...' }}</p>
+                        </div>
+                        
+                        <div>
+                            <p class="text-sm text-gray-500">Tema</p>
+                            <p id="bookTheme" class="text-lg font-semibold text-gray-800">{{ story_data.tema or 'Aventura' }}</p>
+                        </div>
+                        
+                        <div>
+                            <p class="text-sm text-gray-500">Páginas ilustradas</p>
+                            <p class="text-lg font-semibold text-gray-800">12 páginas</p>
+                        </div>
+                        
+                        <div id="storyPreview" class="hidden">
+                            <p class="text-sm text-gray-500">Resumen</p>
+                            <p class="text-gray-700">{{ story_data.resumen or '' }}</p>
+                        </div>
+                    </div>
+
+                    <hr class="my-6">
+
+                    <!-- Pricing -->
+                    <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6">
+                        <p class="text-sm text-gray-600 mb-2">Precio del libro completo</p>
+                        <p class="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 mb-4">
+                            {{ book.total_price_euros }}€
+                        </p>
+                        <ul class="text-sm text-gray-600 space-y-1 mb-6">
+                            <li>✅ 12 páginas ilustradas personalizadas</li>
+                            <li>✅ Historia única con IA</li>
+                            <li>✅ PDF de alta calidad</li>
+                            <li>✅ Listo para imprimir</li>
+                        </ul>
+                        
+                        <a 
+                            href="/checkout/{{ book.id }}" 
+                            id="buyButton"
+                            class="block w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-4 px-6 rounded-lg transition shadow-lg text-center transform hover:scale-105 duration-200"
+                        >
+                            💳 Comprar Libro Completo
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error Message -->
+            <div id="errorMessage" class="hidden bg-red-50 border-2 border-red-200 rounded-xl p-6 mb-8">
+                <h3 class="text-red-800 font-bold mb-2">❌ Error</h3>
+                <p id="errorText" class="text-red-700"></p>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const bookId = '{{ book.id }}';
+        const initialStatus = '{{ book.status }}';
+        let pollingInterval = null;
+
+        const steps = {
+            'preview': 'step1',
+            'generating_story': 'step1',
+            'generating_character_sheet': 'step2',
+            'generating_scene_sheet': 'step3',
+            'generating_cover': 'step4',
+            'preview_ready': 'complete'
+        };
+
+        async function checkStatus() {
+            try {
+                const response = await fetch(`/api/books/${bookId}/status`);
+                const data = await response.json();
+                
+                // Update step visualization
+                updateStepProgress(data.current_step, data.progress_percentage);
+                
+                if (data.status === 'preview_ready') {
+                    clearInterval(pollingInterval);
+                    showContent(data);
+                } else if (data.status === 'preview_error') {
+                    clearInterval(pollingInterval);
+                    showError(data.error);
+                }
+                
+            } catch (error) {
+                console.error('Error checking status:', error);
+            }
+        }
+
+        function updateStepProgress(currentStep, progress) {
+            // Update progress bar
+            document.getElementById('progressBar').style.width = progress + '%';
+            document.getElementById('progressText').textContent = Math.round(progress) + '%';
+            
+            // Update step text
+            if (currentStep) {
+                document.getElementById('loadingStep').textContent = currentStep;
+            }
+            
+            // Update step checkmarks
+            const stepMapping = {
+                'Generando historia': 'step1',
+                'Creando character sheet': 'step2',
+                'Creando scene sheet': 'step3',
+                'Generando portada': 'step4'
+            };
+            
+            for (const [text, stepId] of Object.entries(stepMapping)) {
+                const el = document.getElementById(stepId);
+                if (currentStep && currentStep.includes(text.split(' ')[1])) {
+                    el.className = 'flex items-center text-blue-600 font-semibold';
+                    el.querySelector('span').textContent = '🔄';
+                } else if (progress > getStepProgress(stepId)) {
+                    el.className = 'flex items-center text-green-600';
+                    el.querySelector('span').textContent = '✅';
+                }
+            }
+        }
+
+        function getStepProgress(stepId) {
+            const progressMap = {
+                'step1': 25,
+                'step2': 50,
+                'step3': 75,
+                'step4': 90
+            };
+            return progressMap[stepId] || 0;
+        }
+
+        function showContent(data) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('content').classList.remove('hidden');
+            
+            // Update cover if available
+            if (data.cover_preview_url) {
+                document.getElementById('coverContainer').innerHTML = 
+                    `<img src="${data.cover_preview_url}" alt="Portada" class="w-full h-full object-cover">`;
+            }
+            
+            // Update story info
+            if (data.story_preview) {
+                document.getElementById('storyPreview').classList.remove('hidden');
+            }
+        }
+
+        function showError(error) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('content').classList.remove('hidden');
+            document.getElementById('errorMessage').classList.remove('hidden');
+            document.getElementById('errorText').textContent = error || 'Error desconocido';
+            document.getElementById('buyButton').classList.add('hidden');
+        }
+
+        // Regenerate cover
+        document.getElementById('regenerateBtn')?.addEventListener('click', async function() {
+            if (!confirm('¿Quieres regenerar la portada? Esto puede tardar 1 minuto.')) return;
+            
+            this.disabled = true;
+            this.innerHTML = '⏳ Regenerando...';
+            
+            try {
+                const response = await fetch(`/api/books/${bookId}/regenerate-preview`, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Show loading and start polling
+                    document.getElementById('content').classList.add('hidden');
+                    document.getElementById('loading').classList.remove('hidden');
+                    document.getElementById('loadingTitle').textContent = 'Regenerando portada...';
+                    pollingInterval = setInterval(checkStatus, 2000);
+                } else {
+                    alert('❌ ' + data.detail);
+                    this.disabled = false;
+                    this.innerHTML = '🔄 No me gusta, generar otra portada';
+                }
+            } catch (err) {
+                alert('❌ Error: ' + err.message);
+                this.disabled = false;
+                this.innerHTML = '🔄 No me gusta, generar otra portada';
+            }
+        });
+
+        // Initialize
+        if (initialStatus === 'preview' || initialStatus === 'generating_story' || 
+            initialStatus === 'generating_character_sheet' || initialStatus === 'generating_scene_sheet' ||
+            initialStatus === 'generating_cover') {
+            pollingInterval = setInterval(checkStatus, 2000);
+            checkStatus();
+        } else if (initialStatus === 'preview_ready') {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('content').classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>

@@ -19,7 +19,7 @@ app = FastAPI(
     title=settings.app_name,
     debug=settings.debug,
     version="2.0.0",
-    description="Generador de libros infantiles personalizados con IA (Gemini + Ideogram)"
+    description="Generador de libros infantiles personalizados con IA (Gemini + Gemini Image)"
 )
 
 # Static files y templates
@@ -30,7 +30,10 @@ templates = Jinja2Templates(directory="app/templates")
 
 # Incluir routers de API
 from .api.books import router as books_router
+from .api.admin import router as admin_router
+
 app.include_router(books_router)
+app.include_router(admin_router)
 
 # === RUTAS DE PÁGINAS WEB ===
 
@@ -49,7 +52,7 @@ async def homepage(request: Request, db: Session = Depends(get_db)):
             "max_pages": 20,
             "gemini_configured": bool(settings.gemini_api_key),
             "ideogram_configured": bool(settings.ideogram_api_key),
-            "apis_configured": bool(settings.gemini_api_key and settings.ideogram_api_key)
+            "apis_configured": bool(settings.gemini_api_key)
         }
         
         return templates.TemplateResponse("index.html", context)
@@ -214,6 +217,11 @@ async def checkout_page(request: Request, book_id: str, db: Session = Depends(ge
             "error_code": 500
         })
 
+@app.get("/admin/regeneration-requests", response_class=HTMLResponse)
+async def admin_regeneration_page(request: Request):
+    """Panel de administración para aprobar regeneraciones"""
+    return templates.TemplateResponse("admin.html", {"request": request})
+
 # === ENDPOINTS DE UTILIDAD ===
 
 @app.get("/health")
@@ -224,7 +232,6 @@ async def health_check():
         "app": settings.app_name,
         "version": "2.0.0",
         "gemini_configured": bool(settings.gemini_api_key),
-        "ideogram_configured": bool(settings.ideogram_api_key),
         "database": "connected" if settings.database_url else "not configured"
     }
 

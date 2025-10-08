@@ -9,7 +9,7 @@ from pathlib import Path
 from sqlalchemy.sql import func
 
 from ..database import get_db, check_rate_limit, record_action, SessionLocal
-from ..models import Book, BookResponse
+from ..models import Book, BookResponse, RegenerationRequest
 from ..services import get_book_service
 from ..config import settings
 
@@ -56,12 +56,11 @@ async def create_book_preview(
     child_name: str = Form(...),
     child_age: int = Form(...),
     child_description: str = Form(""),
-    total_pages: int = Form(6),
     photo: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
     """
-    Crear preview: historia + sheets + portada
+    Crear preview: historia + sheets + portada (12 páginas fijas)
     """
     # Rate limiting
     client_ip = get_client_ip(request)
@@ -75,21 +74,20 @@ async def create_book_preview(
     if not (1 <= child_age <= 12):
         raise HTTPException(status_code=400, detail="Edad entre 1 y 12 años")
     
-    if not (4 <= total_pages <= 20):
-        raise HTTPException(status_code=400, detail="Entre 4 y 20 páginas")
-    
     try:
         # Guardar foto
         photo_path = save_upload_file(photo)
         
-        # Crear libro en BD
+        # Crear libro en BD con 12 páginas fijas
         book = Book(
             child_name=child_name.strip(),
             child_age=child_age,
             child_description=child_description.strip() if child_description else None,
-            total_pages=total_pages,
+            total_pages=12,  # FIJO
             original_photo_path=photo_path,
             status='preview',
+            current_step='Iniciando',
+            progress_percentage=0,
             ip_hash=client_ip
         )
         
@@ -110,6 +108,40 @@ async def create_book_preview(
     except Exception as e:
         print(f"❌ Error creando preview: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{book_id}/regenerate-preview")
+async def regenerate_preview(
+    book_id: str,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Regenerar SOLO la portada del preview (mantiene historia y sheets)
+    """
+    book = db.query(Book).filter(Book.id == book_id).first()
+    if not book:
+        raise HTTPException(status_code=404, detail="Libro no encontrado")
+    
+    if book.status != 'preview_ready':
+        raise HTTPException(status_code=400, detail="Solo se puede regenerar en preview_ready")
+    
+    # Rate limiting: 3 regeneraciones por día
+    client_ip = get_client_ip(request)
+    if not check_rate_limit(db, client_ip, "regenerate_preview", 3):
+        raise HTTPException(
+            status_code=429, 
+            detail="Máximo 3 regeneraciones por día"
+        )
+    
+    # Registrar acción
+    record_action(db, client_ip, "regenerate_preview")
+    
+    # Regenerar en background
+    service = get_book_service()
+    background_tasks.add_task(service.regenerate_preview_cover, book_id)
+    
+    return {"message": "Regeneración iniciada", "book_id": book_id}
 
 @router.get("/{book_id}", response_model=BookResponse)
 async def get_book(book_id: str, db: Session = Depends(get_db)):
@@ -154,7 +186,7 @@ async def generate_complete_book(
 
 @router.get("/{book_id}/status")
 async def get_book_status(book_id: str, db: Session = Depends(get_db)):
-    """Estado del libro (para polling)"""
+    """Estado del libro (para polling) con información detallada"""
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
         raise HTTPException(status_code=404, detail="Libro no encontrado")
@@ -163,7 +195,9 @@ async def get_book_status(book_id: str, db: Session = Depends(get_db)):
         "book_id": book.id,
         "status": book.status,
         "child_name": book.child_name,
-        "title": book.title
+        "title": book.title,
+        "current_step": book.current_step,
+        "progress_percentage": book.progress_percentage or 0
     }
     
     if book.status == 'preview_ready':
@@ -179,6 +213,48 @@ async def get_book_status(book_id: str, db: Session = Depends(get_db)):
         response["error"] = book.generation_error
     
     return response
+
+@router.post("/{book_id}/request-regeneration")
+async def request_page_regeneration(
+    book_id: str,
+    request: Request,
+    data: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Solicitar regeneración de una página específica (cliente)
+    """
+    book = db.query(Book).filter(Book.id == book_id).first()
+    if not book:
+        raise HTTPException(status_code=404, detail="Libro no encontrado")
+    
+    if book.status != 'completed':
+        raise HTTPException(status_code=400, detail="El libro debe estar completado")
+    
+    page_number = data.get('page_number')
+    reason = data.get('reason', '')
+    
+    if not page_number or page_number < 1 or page_number > book.total_pages:
+        raise HTTPException(status_code=400, detail="Número de página inválido")
+    
+    # Crear petición
+    regen_request = RegenerationRequest(
+        book_id=book_id,
+        page_number=page_number,
+        reason=reason,
+        status='pending'
+    )
+    
+    db.add(regen_request)
+    db.commit()
+    
+    print(f"📤 Petición de regeneración creada: Página {page_number} del libro {book_id}")
+    
+    return {
+        "message": "Solicitud enviada correctamente",
+        "request_id": regen_request.id,
+        "status": "pending"
+    }
 
 @router.delete("/{book_id}")
 async def delete_book(book_id: str, db: Session = Depends(get_db)):
