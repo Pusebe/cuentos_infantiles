@@ -13,6 +13,18 @@ import secrets
 import time
 from PIL import Image, ImageDraw, ImageFont
 
+try:
+    from reportlab.lib.pagesizes import inch
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.colors import Color
+    REPORTLAB_AVAILABLE = True
+    print("📄 ReportLab imported successfully")
+except ImportError as e:
+    print(f"⚠️ ReportLab not available: {e} (Install with: pip install reportlab)")
+    REPORTLAB_AVAILABLE = False
+    inch = 72  # Fallback: define inch as 72 points (standard)
+    # Note: Color and canvas will need fallbacks if used without ReportLab
+
 class GeminiService:
     """Servicio para Gemini - Generación de historias con vision"""
     
@@ -57,7 +69,7 @@ JSON CON IDS ÚNICOS:
     "resumen": "Resumen breve del libro completo",
     "leccion": "Qué aprenderá",
     "personajes_principales": [
-        {{"id": "protagonista", "descripcion": "El niño de la foto como personaje principal"}},
+        {{"id": "protagonista", "descripcion": "la persona de la foto como personaje principal"}},
         {{"id": "id-descriptivo", "descripcion": "Descripción del personaje"}}
     ],
     "objetos_importantes": [
@@ -915,10 +927,7 @@ class BookGenerationService:
     async def _create_pdf(self, book: Book, story_data: Dict, cover_filename: Optional[str], page_filenames: List[Optional[str]]) -> Optional[str]:
         """Crear PDF con imágenes a página completa, texto superpuesto y contraportada"""
         try:
-            from reportlab.lib.pagesizes import inch
-            from reportlab.pdfgen import canvas
-            from reportlab.lib.colors import Color
-            
+
             PAGE_SIZE = (8.5*inch, 8.5*inch)
             
             pdf_filename = f"libro_{book.child_name}_{book.id[:8]}.pdf"

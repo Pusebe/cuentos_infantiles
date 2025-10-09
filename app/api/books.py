@@ -71,8 +71,8 @@ async def create_book_preview(
         )
     
     # Validaciones
-    if not (1 <= child_age <= 12):
-        raise HTTPException(status_code=400, detail="Edad entre 1 y 12 años")
+    if not (1 <= child_age <= 99):
+        raise HTTPException(status_code=400, detail="Edad entre 1 y 99 años")
     
     try:
         # Guardar foto

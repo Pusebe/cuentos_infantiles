@@ -1,12 +1,28 @@
+<!-- base.html -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Generador de Libros Infantiles{% endblock %}</title>
+    <title>{% block title %}Pequehistorias | El cuento donde es protagonista{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Custom animations */
+        body { 
+            font-family: 'Poppins', sans-serif; 
+            scroll-behavior: smooth; 
+            background-color: #f9fafb; 
+            background-image: radial-gradient(#d1d5db 0.5px, transparent 0.5px); 
+            background-size: 15px 15px; 
+        }
+        .blob { 
+            position: absolute; 
+            border-radius: 50%; 
+            filter: blur(80px); 
+            z-index: 0; 
+        }
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
@@ -16,7 +32,8 @@
         }
     </style>
 </head>
-<body>
+<body class="relative overflow-x-hidden">
     {% block content %}{% endblock %}
 </body>
 </html>
+

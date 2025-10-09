@@ -1,200 +1,205 @@
 {% extends "base.html" %}
-
 {% block title %}Checkout - {{ story_data.titulo }}{% endblock %}
-
 {% block content %}
 <script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Poppins', sans-serif; scroll-behavior: smooth; background-color: #f9fafb; background-image: radial-gradient(#d1d5db 0.5px, transparent 0.5px); background-size: 15px 15px; }
+  .blob { position: absolute; border-radius: 50%; filter: blur(80px); z-index: 0; }
+</style>
 
-<div class="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 min-h-screen py-8">
-    <div class="container mx-auto px-4 max-w-5xl">
+<body class="relative overflow-x-hidden">
+
+<div class="relative bg-indigo-50/80 backdrop-blur-sm overflow-hidden py-8 sm:py-12">
+  <div class="blob w-96 h-96 bg-emerald-200 -top-20 -left-20"></div>
+  <div class="blob w-72 h-72 bg-green-200 -bottom-20 -right-10"></div>
+  
+  <div class="container relative mx-auto max-w-6xl px-6 z-10">
+    
+    <!-- Header -->
+    <div class="text-center mb-6 sm:mb-8">
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-emerald-700 mb-2">
+        💳 Comprar Libro Completo
+      </h1>
+      <p class="text-gray-700 text-lg">{{ story_data.titulo }}</p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
+      
+      <!-- Cover Preview -->
+      <div class="bg-white p-6 sm:p-8 rounded-2xl shadow-xl">
+        <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mb-4">📖 Vista Previa</h2>
         
-        <!-- Header -->
-        <div class="text-center mb-8">
-            <h1 class="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-emerald-600 mb-2">
-                💳 Comprar Libro Completo
-            </h1>
-            <p class="text-gray-600">{{ story_data.titulo }}</p>
+        {% if cover_url %}
+        <div class="aspect-square rounded-lg overflow-hidden mb-4 shadow-lg">
+          <img src="{{ cover_url }}" alt="Portada" class="w-full h-full object-cover">
+        </div>
+        {% endif %}
+        
+        <div class="space-y-3">
+          <div class="flex justify-between">
+            <span class="text-gray-600">Para:</span>
+            <span class="font-semibold text-gray-800">{{ book.child_name }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-600">Edad:</span>
+            <span class="font-semibold text-gray-800">{{ book.child_age }} años</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-600">Páginas:</span>
+            <span class="font-semibold text-gray-800">12 ilustradas</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-600">Tema:</span>
+            <span class="font-semibold text-gray-800">{{ story_data.get('tema', 'Aventura') }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Payment Form -->
+      <div class="bg-white p-6 sm:p-8 rounded-2xl shadow-xl">
+        <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mb-4">💰 Resumen de Compra</h2>
+        
+        <!-- Price Breakdown -->
+        <div class="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-6 mb-6">
+          <div class="space-y-3 mb-4">
+            <div class="flex justify-between text-gray-700">
+              <span>Libro base (12 páginas)</span>
+              <span class="font-semibold">{{ base_price }}€</span>
+            </div>
+          </div>
+          
+          <hr class="my-4 border-gray-300">
+          
+          <div class="flex justify-between items-center">
+            <span class="text-xl font-bold text-gray-800">Total</span>
+            <span class="text-3xl sm:text-4xl font-bold text-emerald-600">
+              {{ book.total_price_euros }}€
+            </span>
+          </div>
         </div>
 
-        <div class="grid md:grid-cols-2 gap-8">
-            
-            <!-- Cover Preview -->
-            <div class="bg-white rounded-2xl shadow-xl p-6">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">📖 Vista Previa</h2>
-                
-                {% if cover_url %}
-                <div class="aspect-square rounded-lg overflow-hidden mb-4 shadow-lg">
-                    <img src="{{ cover_url }}" alt="Portada" class="w-full h-full object-cover">
-                </div>
-                {% endif %}
-                
-                <div class="space-y-3">
-                    <div class="flex justify-between">
-                        <span class="text-gray-600">Para:</span>
-                        <span class="font-semibold">{{ book.child_name }}</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-gray-600">Edad:</span>
-                        <span class="font-semibold">{{ book.child_age }} años</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-gray-600">Páginas:</span>
-                        <span class="font-semibold">12 ilustradas</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-gray-600">Tema:</span>
-                        <span class="font-semibold">{{ story_data.get('tema', 'Aventura') }}</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Payment Form -->
-            <div class="bg-white rounded-2xl shadow-xl p-6">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">💰 Resumen de Compra</h2>
-                
-                <!-- Price Breakdown -->
-                <div class="bg-gray-50 rounded-xl p-6 mb-6">
-                    <div class="space-y-3 mb-4">
-                        <div class="flex justify-between text-gray-700">
-                            <span>Libro base (12 páginas)</span>
-                            <span class="font-semibold">{{ base_price }}€</span>
-                        </div>
-                        {% if book.total_pages > default_pages %}
-                        <div class="flex justify-between text-gray-700">
-                            <span>Páginas extra ({{ book.total_pages - default_pages }})</span>
-                            <span class="font-semibold">{{ (book.total_pages - default_pages) * price_per_extra_page }}€</span>
-                        </div>
-                        {% endif %}
-                    </div>
-                    
-                    <hr class="my-4">
-                    
-                    <div class="flex justify-between items-center">
-                        <span class="text-xl font-bold text-gray-800">Total</span>
-                        <span class="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-emerald-600">
-                            {{ book.total_price_euros }}€
-                        </span>
-                    </div>
-                </div>
-
-                <!-- What's Included -->
-                <div class="mb-6">
-                    <h3 class="font-bold text-gray-800 mb-3">✨ Incluye:</h3>
-                    <ul class="space-y-2 text-gray-700">
-                        <li class="flex items-start">
-                            <span class="text-green-600 mr-2">✓</span>
-                            <span>Historia personalizada con IA</span>
-                        </li>
-                        <li class="flex items-start">
-                            <span class="text-green-600 mr-2">✓</span>
-                            <span>12 ilustraciones únicas</span>
-                        </li>
-                        <li class="flex items-start">
-                            <span class="text-green-600 mr-2">✓</span>
-                            <span>PDF de alta calidad</span>
-                        </li>
-                        <li class="flex items-start">
-                            <span class="text-green-600 mr-2">✓</span>
-                            <span>Listo para imprimir</span>
-                        </li>
-                        <li class="flex items-start">
-                            <span class="text-green-600 mr-2">✓</span>
-                            <span>Descarga inmediata</span>
-                        </li>
-                    </ul>
-                </div>
-
-                <hr class="my-6">
-
-                <!-- Payment Form (Debug Mode) -->
-                <div class="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-4 mb-6">
-                    <p class="text-yellow-800 text-sm font-semibold mb-2">🔐 Modo Debug</p>
-                    <p class="text-yellow-700 text-xs">Este es un entorno de prueba. Usa la contraseña de debug.</p>
-                </div>
-
-                <form id="paymentForm" class="space-y-4">
-                    <div>
-                        <label class="block text-gray-700 font-semibold mb-2">
-                            Contraseña de Debug
-                        </label>
-                        <input 
-                            type="password" 
-                            id="password" 
-                            placeholder="Introduce contraseña" 
-                            required
-                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none transition"
-                        >
-                    </div>
-                    
-                    <button 
-                        type="submit"
-                        class="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-4 px-6 rounded-lg transition shadow-lg transform hover:scale-105 duration-200"
-                    >
-                        🚀 Comprar y Generar Libro
-                    </button>
-                </form>
-
-                <!-- Message -->
-                <div id="message" class="hidden mt-6 rounded-lg p-4"></div>
-            </div>
+        <!-- What's Included -->
+        <div class="mb-6">
+          <h3 class="font-bold text-gray-800 mb-3">✨ Incluye:</h3>
+          <ul class="space-y-2 text-gray-700">
+            <li class="flex items-start">
+              <span class="text-emerald-600 mr-2">✓</span>
+              <span>Historia personalizada con IA</span>
+            </li>
+            <li class="flex items-start">
+              <span class="text-emerald-600 mr-2">✓</span>
+              <span>12 ilustraciones únicas</span>
+            </li>
+            <li class="flex items-start">
+              <span class="text-emerald-600 mr-2">✓</span>
+              <span>PDF de alta calidad</span>
+            </li>
+            <li class="flex items-start">
+              <span class="text-emerald-600 mr-2">✓</span>
+              <span>Listo para imprimir</span>
+            </li>
+            <li class="flex items-start">
+              <span class="text-emerald-600 mr-2">✓</span>
+              <span>Descarga inmediata</span>
+            </li>
+          </ul>
         </div>
-    </div>
 
-    <script>
-        document.getElementById('paymentForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const password = document.getElementById('password').value;
-            const messageDiv = document.getElementById('message');
-            const submitBtn = this.querySelector('button');
-            
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '⏳ Procesando...';
-            
-            try {
-                const response = await fetch('/api/books/{{ book.id }}/simulate-payment', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password: password })
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    messageDiv.classList.remove('hidden', 'bg-red-50', 'border-red-200');
-                    messageDiv.classList.add('bg-green-50', 'border-2', 'border-green-200');
-                    messageDiv.innerHTML = `
-                        <p class="text-green-800 font-bold mb-2">✅ ¡Pago exitoso!</p>
-                        <p class="text-green-700 text-sm">Tu libro se está generando. Redirigiendo...</p>
-                    `;
-                    
-                    setTimeout(() => {
-                        window.location.href = '/book/{{ book.id }}';
-                    }, 2000);
-                } else {
-                    messageDiv.classList.remove('hidden', 'bg-green-50', 'border-green-200');
-                    messageDiv.classList.add('bg-red-50', 'border-2', 'border-red-200');
-                    messageDiv.innerHTML = `
-                        <p class="text-red-800 font-bold">❌ Error</p>
-                        <p class="text-red-700 text-sm">${data.detail || 'Contraseña incorrecta'}</p>
-                    `;
-                    
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = '🚀 Comprar y Generar Libro';
-                }
-            } catch (error) {
-                messageDiv.classList.remove('hidden', 'bg-green-50', 'border-green-200');
-                messageDiv.classList.add('bg-red-50', 'border-2', 'border-red-200');
-                messageDiv.innerHTML = `
-                    <p class="text-red-800 font-bold">❌ Error de conexión</p>
-                    <p class="text-red-700 text-sm">${error.message}</p>
-                `;
-                
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = '🚀 Comprar y Generar Libro';
-            }
-        });
-    </script>
+        <hr class="my-6">
+
+        <!-- Payment Form (Debug Mode) -->
+        <div class="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 mb-6">
+          <p class="text-amber-800 text-sm font-semibold mb-2">🔐 Modo Debug</p>
+          <p class="text-amber-700 text-xs">Este es un entorno de prueba. Usa la contraseña de debug.</p>
+        </div>
+
+        <form id="paymentForm" class="space-y-4">
+          <div>
+            <label class="block text-gray-700 font-semibold mb-2">
+              Contraseña de Debug
+            </label>
+            <input 
+              type="password" 
+              id="password" 
+              placeholder="Introduce contraseña" 
+              required
+              class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-emerald-500 focus:outline-none transition"
+            >
+          </div>
+          
+          <button 
+            type="submit"
+            class="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-bold py-4 px-6 rounded-lg transition shadow-lg transform hover:scale-105 duration-200"
+          >
+            🚀 Comprar y Generar Libro
+          </button>
+        </form>
+
+        <!-- Message -->
+        <div id="message" class="hidden mt-6 rounded-lg p-4"></div>
+      </div>
     </div>
+  </div>
 </div>
+
+<script>
+  document.getElementById('paymentForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const password = document.getElementById('password').value;
+    const messageDiv = document.getElementById('message');
+    const submitBtn = this.querySelector('button');
+    
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '⏳ Procesando...';
+    
+    try {
+      const response = await fetch('/api/books/{{ book.id }}/simulate-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: password })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        messageDiv.classList.remove('hidden', 'bg-red-50', 'border-red-200');
+        messageDiv.classList.add('bg-emerald-50', 'border-2', 'border-emerald-200');
+        messageDiv.innerHTML = `
+          <p class="text-emerald-800 font-bold mb-2">✅ ¡Pago exitoso!</p>
+          <p class="text-emerald-700 text-sm">Tu libro se está generando. Redirigiendo...</p>
+        `;
+        
+        setTimeout(() => {
+          window.location.href = '/book/{{ book.id }}';
+        }, 2000);
+      } else {
+        messageDiv.classList.remove('hidden', 'bg-emerald-50', 'border-emerald-200');
+        messageDiv.classList.add('bg-red-50', 'border-2', 'border-red-200');
+        messageDiv.innerHTML = `
+          <p class="text-red-800 font-bold">❌ Error</p>
+          <p class="text-red-700 text-sm">${data.detail || 'Contraseña incorrecta'}</p>
+        `;
+        
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '🚀 Comprar y Generar Libro';
+      }
+    } catch (error) {
+      messageDiv.classList.remove('hidden', 'bg-emerald-50', 'border-emerald-200');
+      messageDiv.classList.add('bg-red-50', 'border-2', 'border-red-200');
+      messageDiv.innerHTML = `
+        <p class="text-red-800 font-bold">❌ Error de conexión</p>
+        <p class="text-red-700 text-sm">${error.message}</p>
+      `;
+      
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '🚀 Comprar y Generar Libro';
+    }
+  });
+</script>
+
+</body>
 {% endblock %}
