@@ -37,7 +37,29 @@ class BookOrchestrator:
         self.gemini_image = GeminiImageService()
         self.ideogram_image = IdeogramImageService()
         self.pdf_generator = PDFGenerator()
-        print("🎯 Book Orchestrator inicializado")
+        
+        # Determinar qué servicio usar para portadas
+        self.cover_service = settings.cover_image_service.lower()
+        if self.cover_service not in ["gemini", "ideogram"]:
+            print(f"⚠️ Servicio de portada inválido: {self.cover_service}, usando Gemini por defecto")
+            self.cover_service = "gemini"
+        
+        print(f"🎯 Book Orchestrator inicializado (portadas: {self.cover_service})")
+    
+    async def _generate_cover(self, story_data: dict, reference_photo_path: str) -> Optional[str]:
+        """Generar portada usando el servicio configurado"""
+        if self.cover_service == "ideogram":
+            print(f"🎨 Usando Ideogram para portada...")
+            return await self.ideogram_image.generate_cover(
+                story_data=story_data,
+                reference_photo_path=reference_photo_path
+            )
+        else:  # gemini
+            print(f"🎨 Usando Gemini para portada...")
+            return await self.gemini_image.generate_cover(
+                story_data=story_data,
+                reference_photo_path=reference_photo_path
+            )
     
     async def generate_preview(self, book_id: str):
         """
@@ -64,13 +86,13 @@ class BookOrchestrator:
             # Guardar edad en la historia
             minimal_story['age'] = book.child_age
             
-            # 2. Generar portada con IDEOGRAM (acepta descripciones de personas)
+            # 2. Generar portada con servicio configurado
             update_book_progress(book_id, "Transformando en portada mágica", 60)
-            print(f"🎨 Generando portada con Ideogram...")
+            print(f"🎨 Generando portada con {self.cover_service.upper()}...")
             cover_filename = None
             for attempt in range(1, 4):
                 print(f"  Intento {attempt}/3...")
-                cover_filename = await self.ideogram_image.generate_cover(
+                cover_filename = await self._generate_cover(
                     story_data=minimal_story,
                     reference_photo_path=book.original_photo_path
                 )
@@ -93,7 +115,7 @@ class BookOrchestrator:
             book.status = 'preview_ready'
             
             db.commit()
-            print(f"✅ Preview {book_id} completado (rápido)")
+            print(f"✅ Preview {book_id} completado (servicio: {self.cover_service})")
             
         except Exception as e:
             print(f"❌ Error generando preview {book_id}: {e}")
@@ -129,12 +151,12 @@ class BookOrchestrator:
             book.progress_percentage = 50
             db.commit()
             
-            # Regenerar portada CON RETRY (usando Ideogram)
-            print(f"🔄 Regenerando portada con Ideogram...")
+            # Regenerar portada CON RETRY (usando servicio configurado)
+            print(f"🔄 Regenerando portada con {self.cover_service.upper()}...")
             cover_filename = None
             for attempt in range(1, 4):
                 print(f"  Intento {attempt}/3...")
-                cover_filename = await self.ideogram_image.generate_cover(
+                cover_filename = await self._generate_cover(
                     story_data=minimal_story,
                     reference_photo_path=book.original_photo_path
                 )
@@ -214,7 +236,7 @@ class BookOrchestrator:
             book.book_data_json = json.dumps(full_story, ensure_ascii=False)
             db.commit()
             
-            # 2. Generar character sheet (basado en portada)
+            # 2. Generar character sheet (basado en portada) - SIEMPRE con Gemini
             update_book_progress(book_id, "Creando personajes con portada", 10)
             print(f"🎨 Generando character sheet...")
             char_sheet_filename = None
@@ -236,7 +258,7 @@ class BookOrchestrator:
             
             char_sheet_path = settings.assets_dir / char_sheet_filename
             
-            # 3. Generar scene sheet
+            # 3. Generar scene sheet - SIEMPRE con Gemini
             update_book_progress(book_id, "Creando escenarios", 20)
             print(f"🏞️ Generando scene sheet...")
             scene_sheet_filename = None
@@ -257,7 +279,7 @@ class BookOrchestrator:
             
             scene_sheet_path = settings.assets_dir / scene_sheet_filename
             
-            # 4. Generar páginas con RETRY
+            # 4. Generar páginas con RETRY - SIEMPRE con Gemini
             page_filenames = []
             failed_pages = []
             total_pages = len(full_story['paginas'])

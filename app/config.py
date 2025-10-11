@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
     
-    # Ideogram - Para generación de imágenes (NO SE USA, ahora usamos Gemini Image)
+    # Ideogram - Para generación de imágenes
     ideogram_api_key: str = ""
     ideogram_model_cover: str = "V_3_TURBO"
     ideogram_model_pages: str = "V_3_TURBO"
@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     ideogram_magic_prompt_pages: bool = True
     ideogram_aspect_ratio: str = "1x1"
     ideogram_resolution: str = "1024x1024"
+    
+    # Configuración de servicios de imagen
+    # Opciones: "gemini" o "ideogram"
+    cover_image_service: str = "gemini"  # Servicio para portadas
     
     # Stripe (para futuro uso)
     stripe_publishable_key: str = ""
@@ -64,7 +68,7 @@ def setup_directories(settings: Settings):
     directories = [
         settings.storage_dir,
         settings.uploads_dir,
-        settings.assets_dir,  # NUEVO
+        settings.assets_dir,
         settings.books_dir,
         settings.previews_dir,
         settings.pdfs_dir,

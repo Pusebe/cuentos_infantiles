@@ -50,10 +50,9 @@ REFERENCIA FOTOGRÁFICA:
 - Foto adjunta del protagonista
 
 TRANSFORMACIÓN ARTÍSTICA:
-- Convierte al niño/a de la foto en un PERSONAJE ILUSTRADO estilo libro infantil moderno
-- Mantén sus rasgos únicos identificables: {descripcion_fisica}
+- Convierte a la persona de la foto en protagonista de un libro infantil stilo moderno
 - Estilo: ilustración colorida y expresiva (NO fotorealista, NO foto editada)
-- Referencias de estilo: Disney, Pixar, libros infantiles contemporáneos de alta calidad
+- Referencias de estilo: libros infantiles contemporáneos de alta calidad
 
 HISTORIA:
 - Título: "{titulo}"
@@ -63,9 +62,9 @@ HISTORIA:
 
 COMPOSICIÓN:
 - El protagonista ILUSTRADO en primer plano (60% de la imagen), en pose dinámica y expresiva
-- Mundo fantástico coherente con "{tema}" de fondo
+- Mundo fantástico coherente con el tema de fondo
 - Colores vibrantes, saturados y atractivos
-- El título "{titulo}" integrado artísticamente en la composición
+- El título integrado artísticamente en la composición
 - Atmósfera mágica que invite a la aventura
 - Detalles ricos que capturen la imaginación
 
@@ -75,11 +74,7 @@ ESTILO VISUAL:
 - Iluminación cinematográfica
 - Textura y profundidad visual
 - Aspecto de portada premium de librería
-
-CRÍTICO: 
-- El personaje debe ser una ILUSTRACIÓN COMPLETA basada en la foto, NO una foto editada o con filtros
-- Debe parecer sacado de un libro de cuentos profesional
-- El niño debe ser CLARAMENTE reconocible pero totalmente transformado en arte infantil"""
+"""
 
             print(f"📝 Generando portada ilustrada...")
             
@@ -200,7 +195,7 @@ CRÍTICO:
                 config=types.GenerateContentConfig(
                     response_modalities=["IMAGE"],
                     image_config=types.ImageConfig(
-                        aspect_ratio="16:9"
+                        aspect_ratio="1:1"
                     )
                 )
             )
