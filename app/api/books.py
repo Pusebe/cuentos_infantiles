@@ -10,7 +10,7 @@ from sqlalchemy.sql import func
 
 from ..database import get_db, check_rate_limit, record_action, SessionLocal
 from ..models import Book, BookResponse, RegenerationRequest
-from ..services import get_book_service
+from ..services import get_book_orchestrator
 from ..config import settings
 
 router = APIRouter(prefix="/api/books", tags=["books"])
@@ -60,7 +60,7 @@ async def create_book_preview(
     db: Session = Depends(get_db)
 ):
     """
-    Crear preview: historia + sheets + portada (12 páginas fijas)
+    Crear preview: historia + portada (SIN sheets, se generan después del pago)
     """
     # Rate limiting
     client_ip = get_client_ip(request)
@@ -71,7 +71,7 @@ async def create_book_preview(
         )
     
     # Validaciones
-    if not (1 <= child_age <= 99):
+    if not (0 <= child_age <= 99):
         raise HTTPException(status_code=400, detail="Edad entre 1 y 99 años")
     
     try:
@@ -98,9 +98,9 @@ async def create_book_preview(
         # Registrar acción
         record_action(db, client_ip, "free_preview")
         
-        # Generar en background con nuevo sistema de sheets
-        service = get_book_service()
-        background_tasks.add_task(service.generate_preview_with_sheets, book.id)
+        # Generar en background (NUEVO: solo historia + portada)
+        orchestrator = get_book_orchestrator()
+        background_tasks.add_task(orchestrator.generate_preview, book.id)
         
         print(f"✅ Preview creado: {book.id}")
         return BookResponse.from_orm(book)
@@ -117,7 +117,7 @@ async def regenerate_preview(
     db: Session = Depends(get_db)
 ):
     """
-    Regenerar SOLO la portada del preview (mantiene historia y sheets)
+    Regenerar SOLO la portada del preview (mantiene historia)
     """
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
@@ -138,8 +138,8 @@ async def regenerate_preview(
     record_action(db, client_ip, "regenerate_preview")
     
     # Regenerar en background
-    service = get_book_service()
-    background_tasks.add_task(service.regenerate_preview_cover, book_id)
+    orchestrator = get_book_orchestrator()
+    background_tasks.add_task(orchestrator.regenerate_preview_cover, book_id)
     
     return {"message": "Regeneración iniciada", "book_id": book_id}
 
@@ -159,7 +159,8 @@ async def generate_complete_book(
     db: Session = Depends(get_db)
 ):
     """
-    Generar libro completo (después del pago) usando sheets
+    Generar libro completo (después del pago)
+    Genera sheets + 12 páginas + PDF
     """
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
@@ -175,8 +176,8 @@ async def generate_complete_book(
         return {"message": "Ya está completado", "status": "completed"}
     
     # Generar en background
-    service = get_book_service()
-    background_tasks.add_task(service.generate_complete_book, book_id)
+    orchestrator = get_book_orchestrator()
+    background_tasks.add_task(orchestrator.generate_complete_book, book_id)
     
     return {
         "message": "Generación iniciada",
@@ -279,15 +280,6 @@ async def delete_book(book_id: str, db: Session = Depends(get_db)):
         except:
             pass
     
-    # Eliminar sheets si existen
-    try:
-        char_sheet = settings.assets_dir / f"{book.child_name}_{book.id[:8]}_characters.png"
-        scene_sheet = settings.assets_dir / f"{book.child_name}_{book.id[:8]}_scenes.png"
-        char_sheet.unlink(missing_ok=True)
-        scene_sheet.unlink(missing_ok=True)
-    except:
-        pass
-    
     # Eliminar de BD
     db.delete(book)
     db.commit()
@@ -325,8 +317,8 @@ async def simulate_payment(
     print(f"💰 Pago simulado exitoso para libro {book_id}")
     
     # Generar libro completo en background
-    service = get_book_service()
-    background_tasks.add_task(service.generate_complete_book, book_id)
+    orchestrator = get_book_orchestrator()
+    background_tasks.add_task(orchestrator.generate_complete_book, book_id)
     
     return {
         "message": "Pago simulado exitoso",

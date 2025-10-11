@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from ..database import get_db
 from ..models import RegenerationRequest, Book
-from ..services import get_book_service
+from ..services import get_book_orchestrator
 from ..config import settings
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -94,9 +94,9 @@ async def approve_regeneration(
     db.commit()
     
     # Ejecutar regeneración en background
-    service = get_book_service()
+    orchestrator = get_book_orchestrator()
     background_tasks.add_task(
-        service.regenerate_single_page,
+        orchestrator.regenerate_single_page,
         regen_request.book_id,
         regen_request.page_number
     )
