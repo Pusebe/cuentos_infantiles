@@ -128,10 +128,10 @@ async def regenerate_preview(
     
     # Rate limiting: 3 regeneraciones por día
     client_ip = get_client_ip(request)
-    if not check_rate_limit(db, client_ip, "regenerate_preview", 3):
+    if not check_rate_limit(db, client_ip, "regenerate_preview", 99):
         raise HTTPException(
             status_code=429, 
-            detail="Máximo 3 regeneraciones por día"
+            detail="Máximo 99 regeneraciones por día"
         )
     
     # Registrar acción

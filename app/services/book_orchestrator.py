@@ -71,7 +71,8 @@ class BookOrchestrator:
             for attempt in range(1, 4):
                 print(f"  Intento {attempt}/3...")
                 cover_filename = await self.ideogram_image.generate_cover(
-                    story_data=minimal_story
+                    story_data=minimal_story,
+                    reference_photo_path=book.original_photo_path
                 )
                 if cover_filename:
                     break
@@ -134,7 +135,8 @@ class BookOrchestrator:
             for attempt in range(1, 4):
                 print(f"  Intento {attempt}/3...")
                 cover_filename = await self.ideogram_image.generate_cover(
-                    story_data=minimal_story
+                    story_data=minimal_story,
+                    reference_photo_path=book.original_photo_path
                 )
                 if cover_filename:
                     break
